@@ -18,30 +18,25 @@ Existing dependencies in `package.json` are provisional and can be reconsidered 
 
 ---
 
-## Phase 0: Project Tooling Setup 🔲
+## Phase 0: Project Tooling Setup ✅
 
 _Configure all developer tooling. No source code changes._
 
-### Status
+### Status: Complete
 
 - ✅ Vitest added (`devDependencies`), `test`/`test:watch` scripts added
 - ✅ `.gitignore` — all needed entries present
-- ❌ **ESLint not set up** — `eslint`, `typescript-eslint`, `eslint.config.js`, `lint`/`lint:fix` scripts all missing
-- ❌ **`vitest.config.ts` not created** (using Vitest defaults for now)
-
-### Remaining Steps
-
-1. **`package.json`** — add devDependencies: `eslint` (v9), `typescript-eslint` (v8); add scripts: `lint`, `lint:fix`
-2. **`eslint.config.js`** — ESLint flat config (ESM `.js`); `tseslint.configs.recommended`; applies to `src/**/*.ts`; ignores `dist/`
-3. **`vitest.config.ts`** — Node environment; test match: `tests/**/*.test.ts`
-4. **`npm install`** — lock new deps
+- ✅ `eslint` (v10), `typescript-eslint` (v8) added to `devDependencies`
+- ✅ `eslint.config.js` — flat config, `tseslint.configs.recommended`, applies to `src/**/*.ts`
+- ✅ `vitest.config.ts` — Node environment, `tests/**/*.test.ts`
+- ✅ `lint` / `lint:fix` scripts added to `package.json`
 
 ### Verification
 
-- [ ] `npm run build` — no regressions
-- [ ] `npm run lint` — passes on all files in `src/`
-- [ ] `npm test` — all existing tests still pass
-- [ ] `npm run fmt:check` — passes (oxfmt unaffected)
+- ✅ `npm run build` — no regressions
+- ✅ `npm run lint` — passes on all files in `src/`
+- ✅ `npm test` — 3/3 tests pass
+- ✅ `npm run fmt:check` — passes (required one `npm run fmt` pass to fix a pre-existing issue in `src/core/index.ts`)
 
 ---
 
