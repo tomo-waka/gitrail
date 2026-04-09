@@ -89,20 +89,24 @@ _Concrete isomorphic-git adapter: ref resolution, remote URL, BFS commit walk wi
 
 ---
 
-## Phase 3: Output Layer (`src/output/`) 🔲
+## Phase 3: Output Layer (`src/output/`) ✅
 
 _JSONL serialization, ISO 8601 timestamp conversion, file rotation._
 
-### Steps
+### Status: Complete
 
-1. `src/output/utils.ts` — `toISO8601()` (negated-offset algorithm), `splitMessage()`
-2. `src/output/writer.ts` — `OutputWriter` class; `{prefix}-000001.jsonl`; rotate post-write on `maxLines`/`maxBytes`; LF-only
-3. `src/output/index.ts` — barrel export
-4. Unit tests: `toISO8601` edge cases (JST, UTC, negative offset), `splitMessage`, rotation trigger logic
+- ✅ `src/output/utils.ts` — `toISO8601()` (negated-offset algorithm), `splitMessage()`
+- ✅ `src/output/writer.ts` — `OutputWriter` class; `{prefix}-000001.jsonl`; post-write rotation on `maxLines`/`maxBytes`; LF-only; byte counting via `Buffer.byteLength`
+- ✅ `src/output/index.ts` — re-exports from `utils.ts` and `writer.ts`
+- ✅ `test/output/utils.test.ts` — 8 tests (JST, UTC, negative offset, `splitMessage` cases)
+- ✅ `test/output/writer.test.ts` — 6 tests (no rotation, line rotation, byte rotation, both thresholds, valid JSONL, LF-only)
 
 ### Verification
 
-- [ ] `npm test` — all tests pass
+- ✅ `npm run build` — 0 errors
+- ✅ `npm run lint` — 0 errors
+- ✅ `npm test` — 23/23 pass (3 + 6 git + 8 utils + 6 writer)
+- ✅ `npm run fmt:check` — clean
 
 ---
 
