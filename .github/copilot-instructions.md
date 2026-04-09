@@ -69,3 +69,19 @@ gitrail/
 ## Coding Conventions
 
 - **Code comments must be written in English.** This applies to all source files, configuration files, and CI/CD definitions.
+
+## Autonomy
+
+This is an early-stage greenfield project with no existing users or production dependencies.
+
+**Proceed without asking for confirmation** for all local, reversible actions:
+
+- Creating, editing, or moving files
+- Installing or updating dependencies
+- Running builds, tests, linters, or formatters
+- Creating commits
+
+**Always ask before:**
+
+- Deleting any file or directory
+- Running `git push`, `git reset --hard`, or any history-altering command
