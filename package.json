@@ -24,12 +24,12 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "format:check": "oxfmt --check",
+    "format:write": "oxfmt",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "citty": "^0.2.2",

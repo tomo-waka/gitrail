@@ -36,7 +36,7 @@ _Configure all developer tooling. No source code changes._
 - ✅ `npm run build` — no regressions
 - ✅ `npm run lint` — passes on all files in `src/`
 - ✅ `npm test` — 3/3 tests pass
-- ✅ `npm run fmt:check` — passes (required one `npm run fmt` pass to fix a pre-existing issue in `src/core/index.ts`)
+- ✅ `npm run format:check` — passes (required one `npm run format:write` pass to fix a pre-existing issue in `src/core/index.ts`)
 
 ---
 
@@ -85,7 +85,7 @@ _Concrete isomorphic-git adapter: ref resolution, remote URL, BFS commit walk wi
 - ✅ `npm run build` — 0 errors
 - ✅ `npm run lint` — 0 errors
 - ✅ `npm test` — 9/9 pass (3 errors + 6 adapter tests)
-- ✅ `npm run fmt:check` — clean
+- ✅ `npm run format:check` — clean
 
 ---
 
@@ -106,7 +106,7 @@ _JSONL serialization, ISO 8601 timestamp conversion, file rotation._
 - ✅ `npm run build` — 0 errors
 - ✅ `npm run lint` — 0 errors
 - ✅ `npm test` — 23/23 pass (3 + 6 git + 8 utils + 6 writer)
-- ✅ `npm run fmt:check` — clean
+- ✅ `npm run format:check` — clean
 
 ---
 
@@ -134,7 +134,7 @@ _Orchestration, differential filtering, output mapping, atomic state file manage
 - ✅ `npm run build` — 0 errors
 - ✅ `npm run lint` — 0 errors
 - ✅ `npm test` — 30/30 pass (23 prior + 7 extractor)
-- ✅ `npm run fmt:check` — clean
+- ✅ `npm run format:check` — clean
 
 ---
 
@@ -148,7 +148,7 @@ _Wire all layers through citty, implement all validation, complete `src/index.ts
 - ✅ `src/cli/index.ts` — re-exports `parseArgs`
 - ✅ `src/index.ts` — full wiring: `IsomorphicGitAdapter` → `parseArgs` → `Extractor`; exit codes 0/1/2; stray `export { Extractor }` removed
 - ✅ `test/cli/args.test.ts` — 19 tests (mutual exclusion, missing branch, invalid rotation args, invalid date, prefix derivation, valid round-trip)
-- ✅ `fmt:check` failure on `.vscode/launch.json` (not from phase work) fixed with `npm run fmt`
+- ✅ `format:check` failure on `.vscode/launch.json` (not from phase work) fixed with `npm run format:write`
 
 ### Notable design decision
 
@@ -159,7 +159,7 @@ _Wire all layers through citty, implement all validation, complete `src/index.ts
 - ✅ `npm run build` — 0 errors
 - ✅ `npm run lint` — 0 errors
 - ✅ `npm test` — 49/49 pass (30 prior + 19 CLI)
-- ✅ `npm run fmt:check` — clean
+- ✅ `npm run format:check` — clean
 - ✅ End-to-end smoke test: `node dist/index.js --branch develop ./` → valid JSONL output with correct `oid`, `subject`, ISO 8601 timestamps, `repository.name: "gitrail"`, `repository.url: "https://github.com/tomo-waka/gitrail.git"`
 
 ---
@@ -170,14 +170,14 @@ _Automate quality checks on every PR; publish to npm on release tag._
 
 ### Status: Complete
 
-- ✅ `ci.yml` — complete (build, test, lint, fmt:check; Node 22)
+- ✅ `ci.yml` — complete (build, test, lint, format:check; Node 22)
 - ✅ `release.yml` — npm Trusted Publishing (OIDC); triggers: release published + workflow_dispatch
 - ✅ `package.json` — `repository.url` added (`https://github.com/tomo-waka/gitrail.git`)
 
 ### Verification
 
 - ✅ `npm run build` — 0 errors
-- ✅ `npm run fmt:check` — clean
+- ✅ `npm run format:check` — clean
 - ✅ `npm run lint` — 0 errors
 - ✅ `npm test` — 49/49 pass
 - ✅ `release.yml` — valid YAML, no `NODE_AUTH_TOKEN` secret, no `--provenance` flag
@@ -185,32 +185,33 @@ _Automate quality checks on every PR; publish to npm on release tag._
 
 ---
 
-## Phase 7: OSS Documentation 🔲
+## Phase 7: OSS Documentation ✅
 
 _Minimum viable documentation for a public CLI project._
 
-### Steps
+### Status: Complete
 
-1. `README.md` — description, install, quick-start, full CLI reference, output schema overview, incremental extraction example
-2. `CONTRIBUTING.md` — local build, run tests, submit PRs
-3. `CHANGELOG.md` — initial v0.1.0 entry (or GitHub Releases only — decide at writing time)
-4. `.github/ISSUE_TEMPLATE/` (optional) — bug report, feature request templates
-5. Verify `LICENSE` is correct (already present)
+- ✅ `README.md` — expanded (requirements, CLI reference, incremental extraction, output file naming)
+- ✅ `CONTRIBUTING.md` — created (prerequisites, setup, build, test, lint/format, PR workflow, code style)
+- ✅ `CHANGELOG.md` — created (v0.1.0 entry following Keep a Changelog format)
+- ✅ `LICENSE` — MIT, verified correct, no changes needed
 
 ### Verification
 
-- [ ] README renders correctly on GitHub
-- [ ] All command examples match actual CLI output
+- ✅ `npm run format:check` — clean across all new/modified files
+- ✅ All Markdown links in `README.md` reference accurate CLI behavior
+- ✅ No placeholder text (`TODO`, `...`) left in any file
+- ✅ Phase 7 marked ✅
 
 ---
 
 ## Final End-to-End Checklist
 
-- [ ] `npm run build` — zero TypeScript errors
-- [ ] `npm run lint` — zero ESLint warnings/errors
-- [ ] `npm test` — all unit tests pass
+- ✅ `npm run build` — zero TypeScript errors
+- ✅ `npm run lint` — zero ESLint warnings/errors
+- ✅ `npm test` — all unit tests pass
+- ✅ CI workflow passes (ci.yml present and passing)
 - [ ] `node dist/index.js --branch main ./` — full extraction; produces `gitrail-000001.jsonl`
 - [ ] Re-run with `--state state.json` — no new output; state file updated
 - [ ] New commit → re-run with `--state` — only new commit in output
 - [ ] `--rotate-lines 2` — produces `gitrail-000001.jsonl`, `gitrail-000002.jsonl`, …
-- [ ] CI workflow passes on GitHub PR

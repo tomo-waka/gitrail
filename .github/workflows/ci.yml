@@ -6,11 +6,12 @@ on:
   push:
     branches: ["**"]
   pull_request:
-    branches: ["**"]
 
 jobs:
-  build-and-test:
+  test-and-build:
+    name: Test and Build
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,13 +27,13 @@ jobs:
         run: npm ci
 
       - name: Format check
-        run: npm run fmt:check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint
 
-      - name: Build
-        run: npm run build
-
       - name: Test
         run: npm test
+
+      - name: Build
+        run: npm run build
