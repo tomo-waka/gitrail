@@ -11,7 +11,7 @@
         "${workspaceFolder}",
         "--branch",
         "develop",
-        "--output",
+        "--output-dir",
         "${workspaceFolder}/out"
       ],
       "preLaunchTask": "npm: build",
