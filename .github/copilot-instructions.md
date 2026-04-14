@@ -71,6 +71,7 @@ gitrail/
 2. **Adapter pattern for Git access**: Core logic depends on an abstract `GitAdapter` interface, not directly on isomorphic-git. This allows future library substitution without touching core logic.
 3. **Streaming-first**: Commit traversal and file output are designed as streams/async iterables to handle large repositories without loading all data into memory.
 4. **Fail-safe state management**: The state file is updated only after successful output. Partial failures must not corrupt state.
+5. **Stable core, volatile edges**: Keep policy and domain decisions in the core, and push runtime-specific mechanisms — such as file I/O, clocks, logging, console output, and framework bindings — to the system boundary through explicit abstractions.
 
 ## Key Design Decisions (do not revisit without reason)
 

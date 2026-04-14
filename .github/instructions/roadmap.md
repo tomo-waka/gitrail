@@ -81,6 +81,19 @@ After extraction completes, print to stderr:
 
 ---
 
+#### CLI UX: Progress metrics quality and progress-display redesign
+
+The current Phase 2 implementation reports progress using the number of written commits (`Processed N commits...`). This is better than having no runtime visibility, and it remains acceptable for v0.1.4, but it is not always a good proxy for actual elapsed work.
+
+For example, runs that use a state file and ultimately write zero new commits can still spend substantial time traversing history or resolving repository state. In those situations, commit-count progress has only a weak relationship to elapsed time and user-perceived progress.
+
+**Future improvement goals**:
+
+- break the end-to-end extraction work into more meaningful phases and measure their durations separately
+- analyze where time is actually spent during traversal, filtering, state handling, and output writing
+- redesign progress reporting based on that evidence rather than using commit count alone
+- keep the current Phase 2 behavior in v0.1.4 as a pragmatic baseline, but treat it as a first iteration rather than a final UX design
+
 #### CLI UX: `--help` option grouping and discoverability
 
 The `--help` output lists all options in a flat list with no grouping. The jump from "I want incremental extraction" to "I need `--state`" is non-obvious.
@@ -208,6 +221,31 @@ Current `eslint.config.js` uses a spread of `tseslint.configs.recommended` into 
 Check the `typescript-eslint` docs for the current idiomatic approach at that time.
 
 ---
+
+#### Refactor: Extractor boundary cleanup for runtime and I/O concerns
+
+`src/core/extractor.ts` currently owns some runtime-specific mechanisms directly, including stderr progress/warning output, Node.js timing APIs, state-file I/O, and direct coupling to output metrics.
+
+This works functionally, but it weakens the architectural boundary between stable core policy and volatile runtime concerns.
+
+**Goal**:
+
+- keep orchestration and extraction policy in the core layer
+- move runtime and side-effect concerns behind explicit abstractions owned by the outer layers
+
+**Candidate refactoring directions**:
+
+- introduce a small reporting/progress interface instead of direct stderr writes
+- introduce a clock abstraction instead of calling Node timing APIs directly in the core
+- evaluate whether state persistence should move behind a dedicated state-store abstraction
+- keep CLI presentation concerns in the CLI layer rather than the extractor itself
+
+**Why this matters**:
+
+- improves testability
+- reduces infrastructure coupling in the core layer
+- makes future feature work require fewer architecture decisions
+- better aligns with the principle: **stable core, volatile edges**
 
 #### Refactor: TypeScript `readonly` audit
 
