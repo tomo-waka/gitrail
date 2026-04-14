@@ -8,10 +8,9 @@ This roadmap is intentionally organized by product priority and time horizon, no
 
 ### Metadata Convention
 
-Use the following fields on selected items when needed:
+Use the following field on selected items when needed:
 
 - **Release target**: the intended version, such as `v0.1.4`
-- **Status**: one of `planned`, `in progress`, or `deferred`
 
 The intended document flow is:
 
@@ -19,7 +18,7 @@ The intended document flow is:
 - plan → active implementation tracking
 - changelog → released history
 
-Because completed work should move into the changelog after release, the roadmap does not need a persistent `done` status.
+Execution status is intentionally not tracked in the roadmap for now. If that becomes necessary later, it should be redesigned based on an actual operational need rather than kept as a weak placeholder.
 
 This keeps the roadmap stable for both humans and LLMs while still making release planning explicit.
 
@@ -28,58 +27,6 @@ This keeps the roadmap stable for both humans and LLMs while still making releas
 ## Product Improvements
 
 ### Near-term
-
-#### Bug: `--help` argument list not displaying
-
-**Release target**: `v0.1.4`  
-**Status**: `planned`
-
-`node dist/index.js --help` shows only the command name and description — argument definitions are not displayed.
-
-**Root cause**: `src/index.ts` defines `main` via `defineCommand({ meta, run() {...} })` without an `args` property. The `argsDef` / `cmdDefinition` object lives in `src/cli/args.ts` but is never wired into `main`.
-
-**Fix**: Import `cmdDefinition` from `src/cli/index.js` and spread it into the `defineCommand` call in `src/index.ts`:
-
-```ts
-import { cmdDefinition } from "./cli/index.js";
-
-const main = defineCommand({
-  ...cmdDefinition,   // brings in meta + args
-  async run() { ... },
-});
-```
-
-**Verification**: `node dist/index.js --help` lists all 9 parameters with descriptions and defaults.
-
----
-
-#### CLI UX: Progress reporting and post-run summary
-
-**Release target**: `v0.1.4`  
-**Status**: `planned`
-
-**Progress reporting during extraction**
-
-Currently the CLI is completely silent during extraction. For large repositories this gives no feedback to the user.
-
-- Display periodic progress to stderr (e.g. `\rProcessed N commits...` updated in-place every ~100 commits, flushed with `\n` at end)
-- Always write progress to **stderr** — must not corrupt JSONL output if stdout is piped
-- Add `--quiet` flag to suppress progress output (for CI / cron usage)
-- Design options to evaluate: simple counter vs lightweight library (`cli-progress`, `ora`) — evaluate bundle size impact first
-
-**Post-run summary**
-
-After extraction completes, print to stderr:
-
-- Number of commits written
-- Number of output files created
-- Total bytes written
-- Elapsed wall-clock time
-- Which branches were processed
-
-**Implementation note**: `Extractor.run()` currently returns `void`. To surface summary data, change the return type to an `ExtractionResult` object (e.g. `{ commitsWritten, filesCreated, bytesWritten, branches }`). The CLI layer in `src/index.ts` formats and prints it to stderr.
-
----
 
 #### CLI UX: Progress metrics quality and progress-display redesign
 
@@ -210,17 +157,6 @@ When a branch is added to `--branch` in a subsequent run, its full traversal may
 ## Development Environment Improvements
 
 ### Near-term
-
-#### Fix: `eslint.config.js` deprecated config syntax
-
-**Release target**: `v0.1.4`  
-**Status**: `planned`
-
-Current `eslint.config.js` uses a spread of `tseslint.configs.recommended` into `tseslint.config()`, which is marked as deprecated. Update to the current recommended flat config pattern when revisiting.
-
-Check the `typescript-eslint` docs for the current idiomatic approach at that time.
-
----
 
 #### Refactor: Extractor boundary cleanup for runtime and I/O concerns
 
