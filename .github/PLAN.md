@@ -138,15 +138,15 @@ _Apply a narrowly scoped tooling cleanup aligned with current repository mainten
 
 ### Status
 
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
 
 ### Tasks
 
-- [ ] Update the deprecated `typescript-eslint` configuration pattern in `eslint.config.js`
-- [ ] Preserve the user’s already completed lint and format fixes
-- [ ] Avoid a broader lint ruleset redesign in this release
+- [x] Update the deprecated `typescript-eslint` configuration pattern in `eslint.config.js`
+- [x] Preserve the user’s already completed lint and format fixes
+- [x] Avoid a broader lint ruleset redesign in this release
 
 ### Target files
 
@@ -154,8 +154,8 @@ _Apply a narrowly scoped tooling cleanup aligned with current repository mainten
 
 ### Verification
 
-- [ ] `npm run lint` passes
-- [ ] `npm run format:check` passes
+- [x] `npm run lint` passes
+- [x] `npm run format:check` passes
 
 ---
 
