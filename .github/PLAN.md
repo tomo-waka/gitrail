@@ -1,208 +1,134 @@
-# gitrail — v0.1.4 Release Plan
+﻿# gitrail — v0.2.0 Release Plan
 
 ## Overview
 
-This plan covers the next release after the completed initial build-out.
-The target version is **v0.1.4**.
+This plan covers the release following v0.1.4.
+The target version is **v0.2.0**.
 
-Version numbers between v0.1.0 and v0.1.4 were used during CI/CD verification and are intentionally skipped. This project continues to follow **Semantic Versioning**, and v0.1.4 is planned as a **small, backward-compatible release** focused on modest improvements and validating the stability of the release flow.
+v0.2.0 is the first release with a deliberate minor-version increment. As this project is still pre-1.0.0, this release may introduce breaking changes to the CLI interface. All such changes will be documented in the changelog.
 
-The user has already completed some local lint and format maintenance work. That work is treated as baseline repository hygiene and should be preserved during implementation.
+The primary focus is on stabilizing the CLI contract early — particularly around how users specify extraction intent and manage state files — and on cleaning up the architecture before the codebase grows further.
 
 ## Release Goals
 
-- Ship a small, low-risk release with clear user value
-- Keep extraction semantics and JSONL output behavior backward-compatible
-- Improve CLI usability for interactive and automated runs
-- Exercise the CI/CD and release process on a stable, reviewable change set
+- Establish a stable, explicit CLI interface for extraction modes and state management
+- Prevent accidental data overwrites caused by repeated runs in the same output directory
+- Improve cross-session correctness when users add new branches over time
+- Reduce architecture coupling in the core layer to improve testability and future feature velocity
+- Improve help discoverability for new users
 
 ## Scope Summary
 
-### Included in v0.1.4
+### Included in v0.2.0
 
-- Fix the CLI `--help` output so defined parameters are displayed correctly
-- Add extraction progress reporting to stderr
-- Add a post-run execution summary to stderr
-- Add a `--quiet` flag for CI, cron, and scripted usage
-- Refresh the deprecated `typescript-eslint` flat-config pattern in the ESLint setup
+- Refactor the extractor boundary to move runtime concerns (stderr, timing, state I/O) behind explicit abstractions
+- Apply `readonly` modifiers across all pure data interfaces and types
+- Add execution-time uniqueness to rotated output filenames to prevent overwrite across sessions
+- Introduce explicit extraction mode (`--mode full|incremental`) and improve state ergonomics (`--state-dir`, `--on-missing-state`)
+- Add merge-base-based cross-run deduplication when new branches are added across sessions
+- Group `--help` output by category for better discoverability
 - Update documentation and changelog entries for the release
 
-### Explicitly excluded from v0.1.4
+### Explicitly excluded from v0.2.0
 
-- Help option grouping or custom help renderer work
-- Explicit extraction mode / state ergonomics redesign
-- Cross-run deduplication for newly added branches
-- Full `readonly` audit across all interfaces and types
-- Long-term output/schema expansion features
+- Progress metrics redesign and phase-level observability
+- Configurable field inclusion or exclusion
+- All long-term output, schema, and streaming features
 
 ---
 
-## Phase 1: CLI Help Output Fix
+## Phase 1: Extractor Boundary Cleanup for Runtime and I/O Concerns
 
-_Fix a clear correctness issue in the command-line UX._
+_Introduce explicit abstractions for stderr output, timing, and state persistence in the core layer, replacing direct runtime coupling in `extractor.ts`._
 
 ### Status
 
-- [x] Planned
-- [x] In progress
-- [x] Completed
-
-### Tasks
-
-- [x] Reuse the existing command definition already declared in the CLI layer
-- [x] Wire that definition into the main entrypoint so `--help` displays the full supported option set
-- [x] Keep the fix minimal and avoid redesigning the help renderer in this release
-
-### Target files
-
-- `src/index.ts`
-- `src/cli/index.ts`
-- `src/cli/args.ts`
-
-### Verification
-
-- [x] `node dist/index.js --help` lists the supported parameters and descriptions
-- [x] No existing CLI argument parsing behavior regresses
+- [ ] Planned
+- [ ] In progress
+- [ ] Completed
 
 ---
 
-## Phase 2: Runtime Progress and Summary Output
+## Phase 2: TypeScript `readonly` Audit
 
-_Add lightweight runtime visibility without changing extraction results._
+_Apply `readonly` modifiers to all interface fields and collection types used as pure data or configuration, starting from value types and working inward._
 
 ### Status
 
-- [x] Planned
-- [x] In progress
-- [x] Completed
-
-### Tasks
-
-- [x] Add periodic progress updates during extraction
-- [x] Write progress updates to **stderr only** so JSONL output remains safe for piping
-- [x] Add a completion summary including:
-  - [x] commits written
-  - [x] output files created
-  - [x] total bytes written
-  - [x] elapsed time
-  - [x] processed branches
-- [x] Prefer a simple implementation without new runtime dependencies unless a strong need emerges
-
-### Target files
-
-- `src/core/types.ts`
-- `src/core/extractor.ts`
-- `src/output/writer.ts`
-- `src/index.ts`
-
-### Verification
-
-- [x] Progress output appears during larger extraction runs
-- [x] Summary output appears at the end of a successful run
-- [x] stdout remains valid JSONL when redirected or piped
+- [ ] Planned
+- [ ] In progress
+- [ ] Completed
 
 ---
 
-## Phase 3: Quiet Mode for Automation
+## Phase 3: Output Filename Uniqueness Across Sessions
 
-_Add a small usability feature for non-interactive environments._
+_Include a session-unique identifier (execution timestamp) in rotated output filenames so repeated runs in the same directory do not overwrite prior results._
 
 ### Status
 
-- [x] Planned
-- [x] In progress
-- [x] Completed
-
-### Tasks
-
-- [x] Add a `--quiet` flag to suppress progress and summary output
-- [x] Ensure this affects only stderr chatter, not normal extraction output or exit codes
-- [x] Document the intended use for CI and scheduled jobs
-
-### Target files
-
-- `src/cli/args.ts`
-- `src/core/types.ts`
-- `src/index.ts`
-
-### Verification
-
-- [x] Running with `--quiet` suppresses progress and summary output
-- [x] Extraction results and exit status remain unchanged
+- [ ] Planned
+- [ ] In progress
+- [ ] Completed
 
 ---
 
-## Phase 4: Dev-Environment Maintenance
+## Phase 4: Explicit Extraction Mode and State Ergonomics
 
-_Apply a narrowly scoped tooling cleanup aligned with current repository maintenance._
+_Add a `--mode` flag for explicit full vs incremental intent, introduce `--state-dir` for automatic state file derivation, and add `--on-missing-state` to control behavior when the expected state file is absent._
 
 ### Status
 
-- [x] Planned
-- [x] In progress
-- [x] Completed
-
-### Tasks
-
-- [x] Update the deprecated `typescript-eslint` configuration pattern in `eslint.config.js`
-- [x] Preserve the user’s already completed lint and format fixes
-- [x] Avoid a broader lint ruleset redesign in this release
-
-### Target files
-
-- `eslint.config.js`
-
-### Verification
-
-- [x] `npm run lint` passes
-- [x] `npm run format:check` passes
+- [ ] Planned
+- [ ] In progress
+- [ ] Completed
 
 ---
 
-## Phase 5: Release Documentation and Notes
+## Phase 5: Cross-Run Deduplication for Newly Added Branches
 
-_Record the small user-facing improvements and release intent clearly._
+_When branches are added across sessions, compute the merge base with previously seen branches and use it as the traversal boundary, preventing duplicate commits in downstream output._
 
 ### Status
 
-- [x] Planned
-- [x] In progress
-- [x] Completed
+- [ ] Planned
+- [ ] In progress
+- [ ] Completed
 
-### Tasks
+---
 
-- [x] Update the CLI documentation in `README.md`
-- [x] Add a v0.1.4 entry to `CHANGELOG.md`
-- [x] Ensure the release notes reflect the purpose of this version: modest enhancements plus CI/CD flow validation
+## Phase 6: Help Option Grouping and Discoverability
 
-### Target files
+_Group CLI options under labelled sections in the `--help` output and add descriptive notes to guide users toward the incremental extraction workflow._
 
-- `README.md`
-- `CHANGELOG.md`
+### Status
 
-### Verification
+- [ ] Planned
+- [ ] In progress
+- [ ] Completed
 
-- [x] Documentation matches the implemented CLI behavior
-- [x] No placeholder text remains in the release notes
+---
+
+## Phase 7: Release Documentation and Notes
+
+_Update the README, changelog, and any migration notes to reflect breaking CLI changes and new behavior introduced in this release._
+
+### Status
+
+- [ ] Planned
+- [ ] In progress
+- [ ] Completed
 
 ---
 
 ## Final Verification Checklist
 
-Before considering v0.1.4 ready:
-
-- [x] `npm run build` completes successfully
-- [x] `npm test` passes for the full suite
-- [x] `npm run lint` passes
-- [x] `npm run format:check` passes as the final formatting gate
-- [x] `node dist/index.js --help` shows the supported arguments correctly
-- [x] One end-to-end extraction smoke test confirms valid JSONL output
-- [x] One end-to-end extraction smoke test confirms stderr-only progress/summary output
-- [x] One end-to-end extraction smoke test confirms correct behavior with `--quiet`
+_To be filled in when phase implementation detail is finalized._
 
 ---
 
 ## Release Intent Summary
 
-v0.1.4 is intentionally a **small stability release**.
-It improves the CLI experience, keeps the implementation risk low, and provides a practical checkpoint for validating the project’s CI/CD and packaging flow before larger roadmap work begins.
+v0.2.0 is a **CLI stability and architecture release**.
+It establishes the intended CLI contract for extraction modes and state management, prevents operational hazards in repeated runs, and cleans up core architecture before the codebase grows further.
+Breaking changes to the CLI interface are intentional and will be documented in the changelog.
