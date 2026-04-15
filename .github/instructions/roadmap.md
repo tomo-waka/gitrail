@@ -72,6 +72,8 @@ The current assumption is to start with **A** because it is the simplest way to 
 
 #### CLI spec: Explicit extraction mode and state ergonomics
 
+**Release target**: v0.2.0
+
 **Problem A — implicit intent**: A user who always intends full extraction but accidentally passes `--state` pointing to an existing file will silently get differential output. There is no explicit intent signal.
 
 **Problem B — no force-full flag**: If a user has been using `--state` for incremental runs but wants a one-time full re-extraction (e.g. schema change upstream), they must manually delete the state file.
@@ -86,6 +88,15 @@ The current assumption is to start with **A** because it is the simplest way to 
 - `--state-dir <dir>` option that auto-derives the state filename from `<output-prefix>` (e.g. `<dir>/<prefix>.state.json`), reducing per-invocation configuration
 - `--on-missing-state error|warn|full` flag to control behavior when state file is expected but absent
 - Document explicitly in README: state file does not survive ephemeral CI workspaces; recommend artifact caching strategies
+
+**Design resolution notes (v0.2.0)**:
+
+- Problems A, B, D addressed. Problem C (`--state-dir`) explicitly deferred beyond v0.2.0.
+- `--mode` adopted values `snapshot|incremental` (not `full|incremental`). `snapshot` was chosen because it accurately describes "extract a cross-section of the DAG" regardless of whether a range filter is applied. `full` would be misleading when combined with `--since-ref` or `--since-date`.
+- `--on-missing-state` adopted values `error|snapshot` (not `error|warn|full`). `warn` was not useful as a distinct value from `snapshot`. The fallback mode name `snapshot` was chosen for consistency with `--mode snapshot`.
+- `--state` + `--since-ref` / `--since-date` is **permitted** in snapshot mode (state is a recording path only; range filter is independent). This reverses the prior mutual exclusion between `--state` and `--since-*`.
+- `--since-commit` renamed to `--since-ref` to accept any Git ref (tag name, branch name, or commit hash). Resolved via `resolveRef()`.
+- CI guidance documented in `docs/usage.md` (Typical Workflows § CI and ephemeral environments).
 
 ---
 
@@ -110,6 +121,24 @@ When a branch is added to `--branch` in a subsequent run, its full traversal may
 ---
 
 ### Long-term
+
+#### Output: Branch reachability annotation per commit
+
+Record which branch(es) each commit was reachable from at extraction time (e.g. `"branches": ["main", "develop"]` in the output JSON). This mirrors the view provided by IDEs such as IntelliJ IDEA's Git log, where each commit row shows the set of branches it belongs to.
+
+**Why deferred**: Evaluated during the v0.2.0 CLI spec design session and explicitly scoped out due to the following implementation constraints:
+
+- **Memory**: pre-computing the reachable set for every branch scales as O(commits × branches); for repositories with many long-lived branches this is prohibitive.
+- **I/O cost**: `isomorphic-git` has no bulk object API — each `readCommit()` is a separate async call. Building per-branch reachability sets requires traversing the full history once per branch.
+- **Streaming incompatibility**: the current architecture emits each commit immediately during BFS traversal. Branch attribution requires knowing all branch assignments before emitting, which requires holding the full result set in memory.
+
+**Possible future directions**:
+
+- Post-process an already-extracted snapshot: after all commits are written, re-traverse per-branch and annotate a secondary index file.
+- Limit to a configurable set of branches (e.g. `--annotate-branches main,develop`) to bound the cost.
+- Consider recording only the "most specific" branch (closest tip ancestor) as a heuristic.
+
+---
 
 #### Output: Repository metadata override
 
