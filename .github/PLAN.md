@@ -433,13 +433,134 @@ npm run format:check
 
 ## Phase 6: Documentation Update
 
-_Update all human-oriented documentation — `docs/`, README, changelog, and migration notes — to reflect the complete set of changes introduced in this release._
+_Update all human-oriented documentation — `CHANGELOG.md`, `README.md`, `docs/usage.md`, and `docs/design/` — to reflect the complete set of changes introduced in this release._
 
 ### Status
 
 - [ ] Planned
 - [ ] In progress
 - [ ] Completed
+
+### Design Decisions
+
+- **CHANGELOG format**: follows Keep a Changelog (Added / Changed / Migration subsections). Breaking changes carry a **Breaking** prefix within Changed. Internal-only phases (Phase 3: Extractor Boundary Cleanup; Phase 4: TypeScript Type Strengthening) are omitted — they have no user-visible impact.
+- **Migration subsection in CHANGELOG**: placed as `### Migration` within the `[0.2.0]` section. Two items: (1) `--since-commit` → `--since-ref` rename; (2) `--mode incremental` now required to trigger differential extraction — `--state` alone no longer implies incremental mode.
+- **Filename format update**: the new format is `{prefix}-{YYYYMMDDTHHmmssZ}-{nnnnnn}.jsonl` (e.g. `my-repo-20240115T090000Z-000001.jsonl`). All occurrences in README.md and docs/usage.md referencing the old `<prefix>-000001.jsonl` pattern must be replaced.
+- **docs/usage.md Multi-Branch "Adding a new branch" section**: replace the "duplicate commits may appear" warning and the Recovery block with a description of the v0.2.0 automatic deduplication behavior (Phase 5). If no common ancestor exists, a full traversal is performed for the new branch.
+- **docs/usage.md is otherwise already up to date**: it already reflects the v0.2.0 CLI surface (`--mode`, `--since-ref`, `--on-missing-state`, grouped CLI reference tables, CI workflow). Only the two targeted changes are required.
+
+### Non-Goals
+
+- `CONTRIBUTING.md` — no process changes in this release
+
+### Target Files
+
+| File | Action | Notes |
+| --- | --- | --- |
+| `CHANGELOG.md` | Modify | Prepend `[0.2.0]` section; see Implementation Notes for exact structure |
+| `README.md` | Modify | Update Output section: replace `<prefix>-000001.jsonl` example with new timestamp-based format and add a brief naming note |
+| `docs/usage.md` | Modify | Two changes: (1) File Rotation section — update filename format examples; (2) Multi-Branch "Adding a new branch" subsection — replace duplicate-commit warning and Recovery block with automatic deduplication description |
+| `docs/design/schema.md` | Modify | "Output file naming" section: replace `{prefix}-{seq}.jsonl` format with `{prefix}-{YYYYMMDDTHHmmssZ}-{seq}.jsonl`; update example filenames accordingly |
+| `docs/design/git-traversal.md` | Modify | Three changes: (1) Rename "Differential by commit hash" section — `--since-commit` → `--since-ref`, note it accepts any Git ref; (2) "Across runs" subsection — replace "Known limitation" + duplicates-explanation + "Current recommendation" with the merge-base deduplication behavior implemented in Phase 5; (3) "Future enhancement candidates" — remove the first bullet point (merge-base deduplication is now implemented) |
+| `docs/design/architecture.md` | Modify | Two changes: (1) Core layer responsibilities — replace `--since-commit` with `--since-ref`; (2) Core layer responsibilities — add Reporter, StateStore, and clock abstractions injected via constructor (Phase 3 outcome); End-to-End Runtime Flow step 3 — clarify that state is read only in `--mode incremental` |
+
+### Implementation Notes
+
+**CHANGELOG.md — `[0.2.0]` section structure** (prepend above `[0.1.4]`; set date to the actual release date):
+
+```markdown
+## [0.2.0] - YYYY-MM-DD
+
+### Added
+
+- `--mode snapshot|incremental` flag to declare extraction intent explicitly (`-m` alias).
+  Default is `snapshot`. `snapshot` runs independently of any prior state; `incremental`
+  reads the state file to extract only new commits and requires `--state`.
+- `--on-missing-state error|snapshot` flag to control behavior when `--mode incremental` is
+  used and the state file is absent. Default is `error`. `snapshot` emits a warning to stderr,
+  performs full extraction, and creates the state file.
+- Shorthand aliases: `-m` (`--mode`), `-o` (`--output-dir`), `-s` (`--state`), `-q` (`--quiet`).
+  The `-b` alias for `--branch` was already present.
+- Cross-run deduplication for newly added branches: when a branch is added to `--branch` in a
+  subsequent incremental run, gitrail automatically computes the merge base between the new
+  branch and branches already recorded in the state file, and uses it as the exclusion boundary.
+  Commits already extracted via other branches are not duplicated.
+
+### Changed
+
+- **Breaking**: `--since-commit` renamed to `--since-ref`. The new option accepts a commit hash,
+  tag name, or branch name (resolved via `resolveRef()`).
+- **Breaking**: Differential extraction now requires `--mode incremental` to be specified
+  explicitly. Previously, the presence of an existing state file implicitly triggered differential
+  extraction. In v0.2.0, `--mode` must be set; `--state` alone records state without reading it
+  (snapshot mode).
+- Output filenames now include a session timestamp:
+  `{prefix}-{YYYYMMDDTHHmmssZ}-{nnnnnn}.jsonl` (e.g. `my-repo-20240115T090000Z-000001.jsonl`).
+  Files from different sessions no longer share a filename series, preventing accidental overwrites
+  in shared output directories.
+- `--state` and `--since-ref` / `--since-date` are now permitted together in snapshot mode.
+  `--state` serves as a recording path only; `--since-ref` / `--since-date` control the extraction
+  range independently.
+
+### Migration
+
+_Upgrading from v0.1.x to v0.2.0_
+
+**1. Rename `--since-commit` to `--since-ref`**
+
+​```diff
+- gitrail -b main --since-commit abc123 ./my-repo
++ gitrail -b main --since-ref abc123 ./my-repo
+​```
+
+**2. Add `--mode incremental` to incremental runs**
+
+In v0.1.x, passing `--state` pointing to an existing state file implicitly triggered differential
+extraction. In v0.2.0, `--mode incremental` is required:
+
+​```diff
+- gitrail -b main --state ./state.json ./my-repo
++ gitrail -m incremental -b main -s ./state.json ./my-repo
+​```
+
+Without `--mode incremental`, `--state` only records the current HEAD after a snapshot
+extraction — it does not read from the file.
+
+[0.2.0]: https://github.com/tomo-waka/gitrail/releases/tag/v0.2.0
+```
+
+**README.md — Output section filename format:**
+
+Replace: `` Output files are named `<prefix>-000001.jsonl`, `<prefix>-000002.jsonl`, and so on. ``
+
+With: `` Output files are named `<prefix>-20240115T090000Z-000001.jsonl`. The timestamp segment (UTC, second precision) is fixed for each session, so all files from a single run share it. Use `--rotate-lines` or `--rotate-size` to split output across multiple files. ``
+
+**docs/usage.md — File Rotation section filename format:**
+
+Replace both occurrences of `<prefix>-000001.jsonl` / `<prefix>-000002.jsonl` (in the prose paragraph and in the CLI reference note at the bottom) with `<prefix>-20240115T090000Z-000001.jsonl` / `<prefix>-20240115T090000Z-000002.jsonl`. Add the note: "The timestamp segment is fixed for the session (captured at run start); all files from one run share it."
+
+**docs/usage.md — Multi-Branch "Adding a new branch to an existing incremental workflow" subsection:**
+
+Replace the current text (from "If a branch is listed in `--branch` but has no entry in the state file" through the end of the Recovery block) with:
+
+> If a branch is listed in `--branch` but has no entry in the state file, gitrail automatically
+> computes the merge base between the new branch and the branches already recorded in the state
+> file, then uses it as the exclusion boundary. Only commits specific to the new branch above the
+> merge base are written — commits already extracted via other branches are not duplicated.
+>
+> If the new branch shares no common ancestor with any already-extracted branch (detached
+> history), gitrail falls back to a full traversal for that branch.
+
+### Verification
+
+- `CHANGELOG.md` has a `[0.2.0]` entry with Added, Changed, and Migration subsections; Migration covers both breaking changes with diff examples
+- No occurrence of `--since-commit` in any documentation file (CHANGELOG.md, README.md, docs/)
+- No occurrence of the old filename pattern `{prefix}-000001.jsonl` (without timestamp) in README.md, docs/usage.md, or docs/design/schema.md
+- No occurrence of "duplicate commits may appear" or "Recovery:" in `docs/usage.md`
+- `docs/design/git-traversal.md` has no "Known limitation" block in the "Across runs" section; describes merge-base deduplication instead
+- `docs/design/git-traversal.md` "Future enhancement candidates" does not mention merge-base deduplication
+- `docs/design/architecture.md` Core layer responsibilities mention Reporter, StateStore, and clock abstractions
+- `npm run format:check` passes
 
 ---
 
