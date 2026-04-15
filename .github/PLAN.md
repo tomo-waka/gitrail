@@ -148,14 +148,14 @@ _Replace the `prefix` parameter in `OutputWriter` with a `filenameFor: (seq: num
 
 ### Target Files
 
-| File                      | Action | Notes                                                                                                                                                                      |
-| ------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/output/writer.ts`    | Modify | Replace `prefix: string` constructor parameter with `filenameFor: (seq: number) => string`; update `openNext()` to call `filenameFor(this.seq)` instead of constructing the filename internally |
-| `src/output/utils.ts`     | Modify | Add `formatSessionTimestamp(date: Date): string` — formats a `Date` as `YYYYMMDDTHHmmssZ` (UTC, second precision)                                                         |
-| `src/output/index.ts`     | Modify | Re-export `formatSessionTimestamp`                                                                                                                                         |
-| `src/core/extractor.ts`   | Modify | Replace `new OutputWriter(outputDir, prefix, rotation)` with `new OutputWriter(outputDir, (seq) => \`${prefix}-${tsStr}-${String(seq).padStart(6, "0")}.jsonl\`, rotation)`; capture `new Date()` as `sessionTs` before the write loop; derive `tsStr` via `formatSessionTimestamp(sessionTs)` |
-| `test/output/writer.test.ts` | Modify | Replace `prefix`-based constructor calls with explicit `filenameFor` callbacks; update all `readFile` calls that reference hardcoded filenames (e.g. `repo-000001.jsonl`) to use the filename produced by the test's own callback |
-| `test/output/utils.test.ts`  | Modify | Add tests for `formatSessionTimestamp`: UTC output, second truncation, known input/output pair                                                                             |
+| File                         | Action | Notes                                                                                                                                                                                                                                                                                    |
+| ---------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/output/writer.ts`       | Modify | Replace `prefix: string` constructor parameter with `filenameFor: (seq: number) => string`; update `openNext()` to call `filenameFor(this.seq)` instead of constructing the filename internally                                                                                          |
+| `src/output/utils.ts`        | Modify | Add `formatSessionTimestamp(date: Date): string` — formats a `Date` as `YYYYMMDDTHHmmssZ` (UTC, second precision)                                                                                                                                                                        |
+| `src/output/index.ts`        | Modify | Re-export `formatSessionTimestamp`                                                                                                                                                                                                                                                       |
+| `src/core/extractor.ts`      | Modify | Replace `new OutputWriter(outputDir, prefix, rotation)` with `new OutputWriter(outputDir, (seq) => \`${prefix}-${tsStr}-${String(seq).padStart(6, "0")}.jsonl\`, rotation)`; capture `new Date()`as`sessionTs`before the write loop; derive`tsStr`via`formatSessionTimestamp(sessionTs)` |
+| `test/output/writer.test.ts` | Modify | Replace `prefix`-based constructor calls with explicit `filenameFor` callbacks; update all `readFile` calls that reference hardcoded filenames (e.g. `repo-000001.jsonl`) to use the filename produced by the test's own callback                                                        |
+| `test/output/utils.test.ts`  | Modify | Add tests for `formatSessionTimestamp`: UTC output, second truncation, known input/output pair                                                                                                                                                                                           |
 
 ### Verification
 
@@ -193,13 +193,15 @@ _Introduce `Reporter`, `StateStore`, and two clock function types into the core 
 ### Design Decisions
 
 - **`Reporter` interface** — split by meaning into three methods:
+
   ```typescript
   interface Reporter {
-    warn(message: string): void;           // branch-not-found, fallback warnings
+    warn(message: string): void; // branch-not-found, fallback warnings
     progress(commitsWritten: number): void; // called after each commit write
-    done(commitsWritten: number): void;    // called once in the finally block
+    done(commitsWritten: number): void; // called once in the finally block
   }
   ```
+
   The `\r`/`\n` rendering, 100-commit throttling, and final flush logic all move into the concrete implementation. `Extractor` calls `progress()` on every commit and `done()` in `finally` — it has no knowledge of display format.
 
 - **`quiet` removal from `ExtractorConfig`** — `Extractor` no longer reads `quiet`. Instead, the CLI passes a no-op `Reporter` when `--quiet` is set. `parseArgs()` return type changes from `Promise<ExtractorConfig>` to `Promise<{ config: ExtractorConfig; quiet: boolean }>`. `src/index.ts` destructures the result, selects the Reporter, and retains `quiet` locally for the post-run summary guard.
@@ -207,18 +209,21 @@ _Introduce `Reporter`, `StateStore`, and two clock function types into the core 
 - **Clock functions — injected separately by purpose**:
   - `wallNow: () => Date` — replaces `new Date()` calls: state file `generatedAt` field and the Phase 2 session timestamp for `filenameFor`
   - `monotonicNow: () => number` — replaces `performance.now()` calls: elapsed time measurement
-  Defined as type aliases in `src/core/types.ts`. Injected as constructor parameters. This ensures that after Phase 2, `Extractor` has zero direct timer/Date calls.
+    Defined as type aliases in `src/core/types.ts`. Injected as constructor parameters. This ensures that after Phase 2, `Extractor` has zero direct timer/Date calls.
 
 - **`StateStore` interface**:
+
   ```typescript
   interface StateStore {
-    read(): Promise<StateFile | null>;  // null when file does not exist
+    read(): Promise<StateFile | null>; // null when file does not exist
     write(state: StateFile): Promise<void>;
   }
   ```
+
   The atomic write implementation (`writeFile(tmp)` → `rename`) moves into the concrete `NodeStateStore` class. Validation logic (version check, repository path check) stays in `Extractor` — it is domain policy, not I/O.
 
 - **Constructor signature**:
+
   ```typescript
   constructor(
     config: ExtractorConfig,
@@ -229,7 +234,8 @@ _Introduce `Reporter`, `StateStore`, and two clock function types into the core 
     stateStore?: StateStore,   // provided iff config.stateFilePath is defined
   )
   ```
-  Separating config data from dependency objects follows the standard Dependency Inversion principle: config describes *what* to do; injected objects provide *how* to do runtime-specific work.
+
+  Separating config data from dependency objects follows the standard Dependency Inversion principle: config describes _what_ to do; injected objects provide _how_ to do runtime-specific work.
 
 - **Concrete implementations live in `src/index.ts`** — `stderrReporter`, `noopReporter`, and `NodeStateStore` are defined inline in the CLI entry point. No new source files are created. This mirrors how `IsomorphicGitAdapter` is the concrete Git implementation at the system boundary.
 
@@ -246,14 +252,14 @@ _Introduce `Reporter`, `StateStore`, and two clock function types into the core 
 
 ### Target Files
 
-| File                          | Action | Notes                                                                                                                                                                                                                                                    |
-| ----------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/core/types.ts`           | Modify | Add `Reporter` and `StateStore` interfaces; add `WallClock` and `MonotonicClock` type aliases (`() => Date` and `() => number`); remove `quiet` from `ExtractorConfig`                                                                                   |
-| `src/core/index.ts`           | Modify | Re-export `Reporter`, `StateStore`, `WallClock`, `MonotonicClock`                                                                                                                                                                                        |
+| File                          | Action | Notes                                                                                                                                                                                                                                                                                                       |
+| ----------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/core/types.ts`           | Modify | Add `Reporter` and `StateStore` interfaces; add `WallClock` and `MonotonicClock` type aliases (`() => Date` and `() => number`); remove `quiet` from `ExtractorConfig`                                                                                                                                      |
+| `src/core/index.ts`           | Modify | Re-export `Reporter`, `StateStore`, `WallClock`, `MonotonicClock`                                                                                                                                                                                                                                           |
 | `src/core/extractor.ts`       | Modify | Add `reporter`, `wallNow`, `monotonicNow`, `stateStore?` constructor parameters; replace all `process.stderr.write` with `reporter.warn/progress/done`; replace `performance.now()` with `monotonicNow()`; replace `new Date()` with `wallNow()`; replace inline state I/O with `stateStore.read()/write()` |
-| `src/cli/args.ts`             | Modify | Remove `quiet` from `ExtractorConfig` construction; change return type to `Promise<{ config: ExtractorConfig; quiet: boolean }>` |
-| `src/index.ts`                | Modify | Destructure `{ config, quiet }` from `parseArgs()`; define `stderrReporter`, `noopReporter`, `NodeStateStore` inline; pass appropriate Reporter and optional StateStore to `new Extractor(...)`; retain `quiet` local variable for the post-run summary guard |
-| `test/core/extractor.test.ts` | Modify | Add `reporter`, `wallNow`, `monotonicNow`, and `stateStore` mocks/stubs to all `Extractor` instantiations; add tests verifying `reporter.warn` is called on branch-not-found and fallback; verify `reporter.done` is called in finally                   |
+| `src/cli/args.ts`             | Modify | Remove `quiet` from `ExtractorConfig` construction; change return type to `Promise<{ config: ExtractorConfig; quiet: boolean }>`                                                                                                                                                                            |
+| `src/index.ts`                | Modify | Destructure `{ config, quiet }` from `parseArgs()`; define `stderrReporter`, `noopReporter`, `NodeStateStore` inline; pass appropriate Reporter and optional StateStore to `new Extractor(...)`; retain `quiet` local variable for the post-run summary guard                                               |
+| `test/core/extractor.test.ts` | Modify | Add `reporter`, `wallNow`, `monotonicNow`, and `stateStore` mocks/stubs to all `Extractor` instantiations; add tests verifying `reporter.warn` is called on branch-not-found and fallback; verify `reporter.done` is called in finally                                                                      |
 
 ### Implementation Notes
 
@@ -280,15 +286,77 @@ npm run format:check
 
 ---
 
-## Phase 4: TypeScript `readonly` Audit
+## Phase 4: TypeScript Type Strengthening
 
-_Apply `readonly` modifiers to all interface fields and collection types used as pure data or configuration, starting from value types and working inward._
+_Strengthen the type system across all layers by applying `readonly` modifiers, `readonly` array types, `never`-based exhaustiveness checks, and a branded `CommitHash` type — keeping changes to the type layer only, with one deliberate exception: a runtime `isCommitHash()` guard at the user-controlled state file boundary._
 
 ### Status
 
 - [ ] Planned
 - [ ] In progress
 - [ ] Completed
+
+### Design Decisions
+
+- **`readonly` on all pure data fields**: apply to every field in `RawPerson`, `RawCommit`, `PersonIdentity`, `OutputPerson`, `OutputRepository`, `OutputCommit`, `RotationConfig`, `ExtractorConfig`, `StateBranchEntry`, `StateFile`, `ExtractionResult`, `GitAdapter` method signatures. Fields are mutable only where there is an explicit documented reason.
+- **`readonly` array types**: `branches: string[]` → `readonly string[]` in `ExtractorConfig`; `parents: string[]` → `readonly string[]` in `RawCommit` and `OutputCommit`; `branches: StateBranchEntry[]` → `readonly StateBranchEntry[]` in `StateFile`. The distinction matters: a `readonly` field holding a mutable array still allows `.push()`; `readonly T[]` prohibits mutation of the array itself.
+- **`never`-based exhaustiveness check on `ExtractionRange`**: add a helper `assertNever(x: never): never` in `src/core/types.ts`. Apply it in `extractor.ts` at the end of any `if/else` chain that handles all `ExtractionRange` variants. When a new variant is added to `ExtractionRange`, the compiler will report an error at every unhandled branch, not just at the type definition. This is a zero-runtime annotation — `assertNever` throws but is unreachable in correct code.
+- **Branded `CommitHash` type**:
+  ```typescript
+  declare const _commitHashBrand: unique symbol;
+  export type CommitHash = string & { readonly [_commitHashBrand]: "CommitHash" };
+  ```
+  Applied to: `RawCommit.oid`, `RawPerson`-adjacent usages, `StateBranchEntry.lastCommitHash`, `ExtractionRange` (`type: "ref"`) hash field, `GitAdapter.resolveRef()` return type, `walkCommits()` `excludeHash` parameter and `commit.oid`.
+- **`as CommitHash` at isomorphic-git boundaries**: values that originate from `resolveRef()` and `readCommit()` inside `isomorphic-git-adapter.ts` are cast with `as CommitHash`. These are library outputs with a known-safe format.
+- **`isCommitHash()` Type Guard at the state file boundary**: the one location where a `string` from `JSON.parse` is promoted to `CommitHash`. This is a user-controlled file and `as CommitHash` would be unsafe. The guard validates 40-character lowercase hex (SHA-1), which is the only hash format isomorphic-git produces. Defined in `src/core/types.ts` alongside the brand definition; exported and used in `src/core/extractor.ts` (or Phase 3's `NodeStateStore.read()` after Phase 3 is applied).
+  ```typescript
+  export function isCommitHash(v: unknown): v is CommitHash {
+    return typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
+  }
+  ```
+- **Execution code impact**: limited to `isCommitHash()` function definition and its call site in state file parsing. All other changes are type-only.
+- **New runtime dependencies**: none.
+
+### Non-Goals
+
+- SHA-256 (64-char) support — isomorphic-git does not produce it; defer if ever needed
+- Branded types for repo paths, branch names, or remote URLs — the safety gain does not justify the annotation noise at this stage
+- Changing `interface` to `type` or vice versa — current usage is already idiomatic
+- Any changes to runtime logic, output format, or CLI behavior
+
+### Target Files
+
+| File                                      | Action | Notes                                                                                                                                                                                                   |
+| ----------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/core/types.ts`                       | Modify | Add `CommitHash` branded type; add `isCommitHash()` guard; add `assertNever()`; apply `readonly` to all fields and collections; update `ExtractionRange` to use `CommitHash`                            |
+| `src/core/index.ts`                       | Modify | Re-export `CommitHash`, `isCommitHash`, `assertNever`                                                                                                                                                   |
+| `src/core/extractor.ts`                   | Modify | Add `assertNever` call at end of `ExtractionRange` handling; use `isCommitHash()` in state file parse; add `as CommitHash` where resolveRef result is used as excludeHash                               |
+| `src/git/types.ts`                        | Modify | Apply `readonly` to all fields of `RawPerson`, `RawCommit`, `GitAdapter`; update `resolveRef()` return type to `Promise<CommitHash>`; update `walkCommits()` `excludeHash` to `CommitHash \| undefined` |
+| `src/git/isomorphic-git-adapter.ts`       | Modify | Add `as CommitHash` at the two points where isomorphic-git OIDs are returned: `resolveRef()` return and `commit.oid` in the walk loop                                                                   |
+| `src/output/types.ts`                     | Modify | Apply `readonly` to all fields of `OutputPerson`, `OutputRepository`, `OutputCommit`                                                                                                                    |
+| `test/core/extractor.test.ts`             | Modify | Update state file fixtures to use valid 40-char hex hashes (any that are already valid remain unchanged); add test asserting `isCommitHash` rejects an invalid hash in state file                       |
+| `test/git/isomorphic-git-adapter.test.ts` | Modify | No logic changes expected; confirm type-level changes compile cleanly                                                                                                                                   |
+
+### Implementation Notes
+
+- Apply changes layer by layer outward: `src/core/types.ts` first, then `src/git/types.ts`, then `src/output/types.ts`, then the concrete files (`extractor.ts`, `isomorphic-git-adapter.ts`). This order ensures TypeScript surfaces all cascade errors in one pass rather than iteratively.
+- `assertNever` is intentionally defined in `src/core/types.ts` rather than a utility file — it is tightly coupled to the discriminated union definitions in that file, and placing it there makes the exhaustiveness contract visible at its point of definition.
+
+### Verification
+
+**Automated:**
+
+```
+npm run build
+npm test
+npm run format:check
+```
+
+**Behavioral checks:**
+
+- Confirm `npm run build` produces zero type errors
+- Tamper a state file's `lastCommitHash` to an invalid string (e.g. `"not-a-hash"`); confirm `isCommitHash()` rejects it and extraction fails with a clear error
+- Confirm no change to any observable CLI output or file content
 
 ---
 
