@@ -1,12 +1,18 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { performance } from "node:perf_hooks";
 
 import type { GitAdapter, RawCommit } from "../git/index.js";
 import { GitAdapterError } from "../git/index.js";
 import { OutputWriter, formatSessionTimestamp, splitMessage, toISO8601 } from "../output/index.js";
 import type { OutputCommit } from "../output/index.js";
-import type { ExtractorConfig, ExtractionResult, StateFile } from "./types.js";
+import type {
+  ExtractorConfig,
+  ExtractionResult,
+  MonotonicClock,
+  Reporter,
+  StateFile,
+  StateStore,
+  WallClock,
+} from "./types.js";
 
 function deriveRepoName(remoteUrl: string | null, repoPath: string): string {
   if (remoteUrl) {
@@ -49,10 +55,14 @@ export class Extractor {
   constructor(
     private readonly config: ExtractorConfig,
     private readonly adapter: GitAdapter,
+    private readonly reporter: Reporter,
+    private readonly wallNow: WallClock,
+    private readonly monotonicNow: MonotonicClock,
+    private readonly stateStore?: StateStore,
   ) {}
 
   async run(): Promise<ExtractionResult> {
-    const startTime = performance.now();
+    const startTime = this.monotonicNow();
     const repoPath = resolve(this.config.repositoryPath);
 
     const remoteUrl = await this.adapter.getRemoteUrl(repoPath);
@@ -60,40 +70,32 @@ export class Extractor {
 
     // Read and validate state file — only in incremental mode
     const stateMap = new Map<string, string>();
-    if (this.config.stateFilePath && this.config.mode === "incremental") {
-      try {
-        const raw = await readFile(this.config.stateFilePath, "utf8");
-        const stateFile = JSON.parse(raw) as StateFile;
-        if (stateFile.version !== 1) {
-          throw new Error(`Unsupported state file version: ${stateFile.version}`);
-        }
-        const recordedPath = resolve(stateFile.repositoryPath);
-        if (recordedPath !== repoPath) {
-          throw new Error(
-            `State file was created for a different repository: ${stateFile.repositoryPath}`,
-          );
-        }
-        for (const entry of stateFile.branches) {
-          stateMap.set(entry.name, entry.lastCommitHash);
-        }
-      } catch (err) {
-        if (
-          err instanceof Error &&
-          "code" in err &&
-          (err as NodeJS.ErrnoException).code === "ENOENT" &&
-          this.config.onMissingState === "snapshot"
-        ) {
-          process.stderr.write(
-            `Warning: State file not found: ${this.config.stateFilePath}. Falling back to full snapshot extraction.\n`,
+    if (this.stateStore && this.config.mode === "incremental") {
+      const stateData = await this.stateStore.read();
+      if (stateData === null) {
+        if (this.config.onMissingState === "snapshot") {
+          this.reporter.warn(
+            `Warning: State file not found: ${this.config.stateFilePath}. Falling back to full snapshot extraction.`,
           );
           // stateMap stays empty → full traversal
-        } else {
-          throw err;
+        }
+      } else {
+        if (stateData.version !== 1) {
+          throw new Error(`Unsupported state file version: ${stateData.version}`);
+        }
+        const recordedPath = resolve(stateData.repositoryPath);
+        if (recordedPath !== repoPath) {
+          throw new Error(
+            `State file was created for a different repository: ${stateData.repositoryPath}`,
+          );
+        }
+        for (const entry of stateData.branches) {
+          stateMap.set(entry.name, entry.lastCommitHash);
         }
       }
     }
 
-    const sessionTs = new Date();
+    const sessionTs = this.wallNow();
     const tsStr = formatSessionTimestamp(sessionTs);
     const writer = new OutputWriter(
       this.config.outputDir,
@@ -112,8 +114,8 @@ export class Extractor {
           head = await this.adapter.resolveRef(repoPath, branch);
         } catch (err) {
           if (err instanceof GitAdapterError && err.code === "REF_NOT_FOUND") {
-            process.stderr.write(
-              `Warning: Branch "${branch}" no longer exists in the repository. Skipping.\n`,
+            this.reporter.warn(
+              `Warning: Branch "${branch}" no longer exists in the repository. Skipping.`,
             );
             continue;
           }
@@ -143,9 +145,7 @@ export class Extractor {
           }
           await writer.write(mapToOutputCommit(commit, repoName, remoteUrl));
           commitsWritten++;
-          if (!this.config.quiet && commitsWritten % 100 === 0) {
-            process.stderr.write(`\rProcessed ${commitsWritten} commits...`);
-          }
+          this.reporter.progress(commitsWritten);
         };
 
         try {
@@ -154,8 +154,8 @@ export class Extractor {
           }
         } catch (err) {
           if (err instanceof GitAdapterError && err.code === "COMMIT_NOT_FOUND") {
-            process.stderr.write(
-              `Warning: Last commit hash for branch "${branch}" no longer exists. Falling back to full extraction.\n`,
+            this.reporter.warn(
+              `Warning: Last commit hash for branch "${branch}" no longer exists. Falling back to full extraction.`,
             );
             for await (const commit of this.adapter.walkCommits(repoPath, head)) {
               await writeCommit(commit);
@@ -166,37 +166,29 @@ export class Extractor {
         }
       }
     } finally {
-      if (!this.config.quiet) {
-        if (commitsWritten > 0 && commitsWritten % 100 !== 0) {
-          process.stderr.write(`\rProcessed ${commitsWritten} commits...\n`);
-        } else if (commitsWritten >= 100) {
-          process.stderr.write("\n");
-        }
-      }
+      this.reporter.done(commitsWritten);
       await writer.close();
     }
 
     // Write state file atomically — only reached on success (no exception)
-    if (this.config.stateFilePath && branchHeads.size > 0) {
+    if (this.stateStore && branchHeads.size > 0) {
       const newState: StateFile = {
         version: 1,
-        generatedAt: new Date().toISOString(),
+        generatedAt: sessionTs.toISOString(),
         repositoryPath: repoPath,
         branches: Array.from(branchHeads.entries()).map(([name, lastCommitHash]) => ({
           name,
           lastCommitHash,
         })),
       };
-      const tmpPath = `${this.config.stateFilePath}.tmp`;
-      await writeFile(tmpPath, JSON.stringify(newState, null, 2), "utf8");
-      await rename(tmpPath, this.config.stateFilePath);
+      await this.stateStore.write(newState);
     }
 
     return {
       commitsWritten,
       filesCreated: writer.filesCreated,
       bytesWritten: writer.bytesWritten,
-      elapsedMs: performance.now() - startTime,
+      elapsedMs: this.monotonicNow() - startTime,
       branches: Array.from(branchHeads.keys()),
     };
   }

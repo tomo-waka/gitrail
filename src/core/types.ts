@@ -20,8 +20,21 @@ export interface ExtractorConfig {
   onMissingState?: "error" | "snapshot";
   range?: ExtractionRange;
   stateFilePath?: string;
-  quiet?: boolean;
 }
+
+export interface Reporter {
+  warn(message: string): void;
+  progress(commitsWritten: number): void;
+  done(commitsWritten: number): void;
+}
+
+export interface StateStore {
+  read(): Promise<StateFile | null>;
+  write(state: StateFile): Promise<void>;
+}
+
+export type WallClock = () => Date;
+export type MonotonicClock = () => number;
 
 export interface StateBranchEntry {
   name: string;

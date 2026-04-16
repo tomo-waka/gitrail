@@ -178,9 +178,9 @@ _Introduce `Reporter`, `StateStore`, and two clock function types into the core 
 
 #### Status
 
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
 
 #### Design References
 

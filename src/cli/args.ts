@@ -8,6 +8,10 @@ import type { ExtractorConfig } from "../core/index.js";
 import { GitAdapterError } from "../git/index.js";
 import type { GitAdapter } from "../git/index.js";
 
+export interface ParsedArgs extends ExtractorConfig {
+  quiet: boolean;
+}
+
 // Define all citty args on a defineCommand descriptor.
 // The schema is defined separately so it can be passed directly to parseCittyArgs.
 const argsDef = {
@@ -91,7 +95,7 @@ function userError(msg: string): never {
   process.exit(1);
 }
 
-export async function parseArgs(adapter: GitAdapter): Promise<ExtractorConfig> {
+export async function parseArgs(adapter: GitAdapter): Promise<ParsedArgs> {
   const rawArgv = process.argv.slice(2);
 
   // Citty only keeps the last occurrence of a string flag when it appears multiple times.

@@ -1,18 +1,75 @@
 #!/usr/bin/env node
+import { rename, writeFile } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
+
 import { defineCommand, runMain } from "citty";
 
 import { cmdDefinition, parseArgs } from "./cli/index.js";
 import { Extractor } from "./core/index.js";
-import { IsomorphicGitAdapter } from "./git/index.js";
+import type { Reporter, StateFile, StateStore } from "./core/index.js";
 import { GitAdapterError } from "./git/index.js";
+import { IsomorphicGitAdapter } from "./git/index.js";
+
+const stderrReporter: Reporter & { lastDisplayed: number } = {
+  lastDisplayed: 0,
+  warn(message: string): void {
+    process.stderr.write(message + "\n");
+  },
+  progress(commitsWritten: number): void {
+    if (commitsWritten - this.lastDisplayed >= 100) {
+      this.lastDisplayed = commitsWritten;
+      process.stderr.write(`\rProcessed ${commitsWritten} commits...`);
+    }
+  },
+  done(commitsWritten: number): void {
+    if (commitsWritten > 0 && commitsWritten !== this.lastDisplayed) {
+      process.stderr.write(`\rProcessed ${commitsWritten} commits...\n`);
+    } else if (this.lastDisplayed >= 100) {
+      process.stderr.write("\n");
+    }
+  },
+};
+
+const noopReporter: Reporter = {
+  warn(_message: string): void {},
+  progress(_commitsWritten: number): void {},
+  done(_commitsWritten: number): void {},
+};
+
+class NodeStateStore implements StateStore {
+  constructor(private readonly stateFilePath: string) {}
+
+  async read(): Promise<StateFile | null> {
+    const { readFile } = await import("node:fs/promises");
+    try {
+      const raw = await readFile(this.stateFilePath, "utf8");
+      return JSON.parse(raw) as StateFile;
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        "code" in err &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async write(state: StateFile): Promise<void> {
+    const tmpPath = `${this.stateFilePath}.tmp`;
+    await writeFile(tmpPath, JSON.stringify(state, null, 2), "utf8");
+    await rename(tmpPath, this.stateFilePath);
+  }
+}
 
 const main = defineCommand({
   ...cmdDefinition,
   async run() {
     const adapter = new IsomorphicGitAdapter();
-    let config;
+    let parsed;
     try {
-      config = await parseArgs(adapter);
+      parsed = await parseArgs(adapter);
     } catch (e) {
       // parseArgs calls process.exit for user errors; if it throws, it's a runtime error
       if (e instanceof GitAdapterError) {
@@ -23,9 +80,21 @@ const main = defineCommand({
       process.exit(2);
     }
     try {
-      const extractor = new Extractor(config, adapter);
+      const { quiet } = parsed;
+      const reporter = quiet ? noopReporter : stderrReporter;
+      const stateStore = parsed.stateFilePath
+        ? new NodeStateStore(parsed.stateFilePath)
+        : undefined;
+      const extractor = new Extractor(
+        parsed,
+        adapter,
+        reporter,
+        () => new Date(),
+        () => performance.now(),
+        stateStore,
+      );
       const result = await extractor.run();
-      if (!config.quiet) {
+      if (!quiet) {
         const elapsed = (result.elapsedMs / 1000).toFixed(1);
         process.stderr.write(`\nExtraction complete\n`);
         process.stderr.write(`  Commits written : ${result.commitsWritten}\n`);

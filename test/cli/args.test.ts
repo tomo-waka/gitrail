@@ -259,26 +259,26 @@ describe("parseArgs – --output-prefix derivation", () => {
     repoDir = await makeRealRepo({ remoteUrl: "https://github.com/org/my-repo.git" });
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.outputPrefix).toBe("my-repo");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.outputPrefix).toBe("my-repo");
   });
 
   it("derives prefix from SSH-style remote URL", async () => {
     repoDir = await makeRealRepo({ remoteUrl: "git@github.com:org/another-repo.git" });
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.outputPrefix).toBe("another-repo");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.outputPrefix).toBe("another-repo");
   });
 
   it("falls back to directory basename when no remote", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
+    const parsed = await parseArgs(adapter);
     // The prefix should be the basename of the temp dir
     const expected = repoDir.split(/[/\\]/).pop()!;
-    expect(config.outputPrefix).toBe(expected);
+    expect(parsed.outputPrefix).toBe(expected);
   });
 
   it("uses explicit --output-prefix when provided", async () => {
@@ -293,8 +293,8 @@ describe("parseArgs – --output-prefix derivation", () => {
       "custom-prefix",
       repoDir,
     );
-    const config = await parseArgs(adapter);
-    expect(config.outputPrefix).toBe("custom-prefix");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.outputPrefix).toBe("custom-prefix");
   });
 });
 
@@ -324,14 +324,14 @@ describe("parseArgs – valid args round-trip", () => {
       repoDir,
     );
     // "develop" branch doesn't exist but that's OK — extractor handles it
-    const config = await parseArgs(adapter);
-    expect(config.repositoryPath).toBe(repoDir);
-    expect(config.branches).toEqual(["main", "develop"]);
-    expect(config.outputPrefix).toBe("test-prefix");
-    expect(config.rotation).toEqual({ maxLines: undefined, maxBytes: undefined });
-    expect(config.range).toBeUndefined();
-    expect(config.stateFilePath).toBeUndefined();
-    expect(config.mode).toBe("snapshot");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.repositoryPath).toBe(repoDir);
+    expect(parsed.branches).toEqual(["main", "develop"]);
+    expect(parsed.outputPrefix).toBe("test-prefix");
+    expect(parsed.rotation).toEqual({ maxLines: undefined, maxBytes: undefined });
+    expect(parsed.range).toBeUndefined();
+    expect(parsed.stateFilePath).toBeUndefined();
+    expect(parsed.mode).toBe("snapshot");
   });
 
   it("returns correct rotation config", async () => {
@@ -348,8 +348,8 @@ describe("parseArgs – valid args round-trip", () => {
       repoDir,
       repoDir,
     );
-    const config = await parseArgs(adapter);
-    expect(config.rotation).toEqual({ maxLines: 1000, maxBytes: 1048576 });
+    const parsed = await parseArgs(adapter);
+    expect(parsed.rotation).toEqual({ maxLines: 1000, maxBytes: 1048576 });
   });
 
   it("returns correct range for --since-date", async () => {
@@ -364,8 +364,8 @@ describe("parseArgs – valid args round-trip", () => {
       repoDir,
       repoDir,
     );
-    const config = await parseArgs(adapter);
-    expect(config.range).toEqual({ type: "date", since: new Date("2024-06-01T00:00:00Z") });
+    const parsed = await parseArgs(adapter);
+    expect(parsed.range).toEqual({ type: "date", since: new Date("2024-06-01T00:00:00Z") });
   });
 
   it("sets stateFilePath when --state is provided", async () => {
@@ -373,24 +373,24 @@ describe("parseArgs – valid args round-trip", () => {
     const adapter = new IsomorphicGitAdapter();
     const stateFilePath = join(repoDir, "state.json");
     setArgv("--branch", "main", "--state", stateFilePath, "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.stateFilePath).toBe(stateFilePath);
+    const parsed = await parseArgs(adapter);
+    expect(parsed.stateFilePath).toBe(stateFilePath);
   });
 
   it("sets quiet=true when --quiet is provided", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "--quiet", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.quiet).toBe(true);
+    const { quiet } = await parseArgs(adapter);
+    expect(quiet).toBe(true);
   });
 
   it("sets quiet=false when --quiet is not provided", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.quiet).toBe(false);
+    const { quiet } = await parseArgs(adapter);
+    expect(quiet).toBe(false);
   });
 });
 
@@ -409,24 +409,24 @@ describe("parseArgs – --mode", () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.mode).toBe("snapshot");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.mode).toBe("snapshot");
   });
 
   it("accepts --mode snapshot explicitly", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("--mode", "snapshot", "--branch", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.mode).toBe("snapshot");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.mode).toBe("snapshot");
   });
 
   it("accepts -m as alias for --mode", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("-m", "snapshot", "--branch", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.mode).toBe("snapshot");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.mode).toBe("snapshot");
   });
 
   it("rejects invalid --mode value", async () => {
@@ -470,10 +470,10 @@ describe("parseArgs – incremental mode", () => {
       repoDir,
       repoDir,
     );
-    const config = await parseArgs(adapter);
-    expect(config.mode).toBe("incremental");
-    expect(config.stateFilePath).toBe(stateFile);
-    expect(config.onMissingState).toBe("error");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.mode).toBe("incremental");
+    expect(parsed.stateFilePath).toBe(stateFile);
+    expect(parsed.onMissingState).toBe("error");
   });
 
   it("exits 1 when --mode incremental and state file missing (default --on-missing-state error)", async () => {
@@ -503,9 +503,9 @@ describe("parseArgs – incremental mode", () => {
       repoDir,
       repoDir,
     );
-    const config = await parseArgs(adapter);
-    expect(config.mode).toBe("incremental");
-    expect(config.onMissingState).toBe("snapshot");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.mode).toBe("incremental");
+    expect(parsed.onMissingState).toBe("snapshot");
   });
 
   it("rejects --on-missing-state with invalid value", async () => {
@@ -556,8 +556,8 @@ describe("parseArgs – --since-ref", () => {
     repoDir = await makeRealRepo();
     // The noopAdapter resolveRef always returns a hash, so since-ref validation passes
     setArgv("--branch", "main", "--since-ref", "v1.0", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(noopAdapter);
-    expect(config.range).toEqual({
+    const parsed = await parseArgs(noopAdapter);
+    expect(parsed.range).toEqual({
       type: "ref",
       ref: "abc123def456abc123def456abc123def456abc123",
     });
@@ -598,25 +598,25 @@ describe("parseArgs – shorthand aliases", () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("-b", "main", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.branches).toContain("main");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.branches).toContain("main");
   });
 
   it("-b can be used multiple times (repeatable)", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("-b", "main", "-b", "develop", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.branches).toContain("main");
-    expect(config.branches).toContain("develop");
+    const parsed = await parseArgs(adapter);
+    expect(parsed.branches).toContain("main");
+    expect(parsed.branches).toContain("develop");
   });
 
   it("-o is accepted as alias for --output-dir", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "-o", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.outputDir).toBe(repoDir);
+    const parsed = await parseArgs(adapter);
+    expect(parsed.outputDir).toBe(repoDir);
   });
 
   it("-s is accepted as alias for --state", async () => {
@@ -624,15 +624,15 @@ describe("parseArgs – shorthand aliases", () => {
     const adapter = new IsomorphicGitAdapter();
     const stateFilePath = join(repoDir, "state.json");
     setArgv("--branch", "main", "-s", stateFilePath, "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.stateFilePath).toBe(stateFilePath);
+    const parsed = await parseArgs(adapter);
+    expect(parsed.stateFilePath).toBe(stateFilePath);
   });
 
   it("-q is accepted as alias for --quiet", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
     setArgv("--branch", "main", "-q", "--output-dir", repoDir, repoDir);
-    const config = await parseArgs(adapter);
-    expect(config.quiet).toBe(true);
+    const { quiet } = await parseArgs(adapter);
+    expect(quiet).toBe(true);
   });
 });
