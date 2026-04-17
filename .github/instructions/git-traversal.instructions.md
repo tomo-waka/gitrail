@@ -208,7 +208,7 @@ This ensures that a crash during output writing does not corrupt the state file.
 
 At the start of an incremental run using `--state`:
 
-- Branches in `--branch` args but **not in state file**: treated as full extraction for that branch. ⚠️ This may produce duplicate output if the new branch shares history with already-extracted branches. See "Cross-Run Deduplication for New Branches" in the Deduplication section.
+- Branches in `--branch` args but **not in state file**: if `stateMap.size > 0`, gitrail computes the merge base between all existing state-file HEADs (`lastCommitHash` values) and uses the result as `excludeHash` for the new branch, preventing cross-run duplicates. If no common ancestor exists (`null` result from `findMergeBase`), falls back to full traversal. If `stateMap.size === 0` (no existing branches in state), all branches are fully extracted (expected for the first incremental run). See "Across Runs (merge base deduplication)" in the Deduplication section.
 - Branches in state file but **not in `--branch` args**: ignored (not re-extracted, not removed from state)
 - Branches in both: differential extraction using recorded `lastCommitHash`
 
@@ -252,28 +252,39 @@ for (const branch of branches) {
 
 Memory note: the `visited` set holds one hash per unique commit traversed. At approximately 100–150 bytes per entry (string + Set overhead), a repository with 1 million commits consumes roughly 100–150 MB. This is acceptable for the initial implementation. For repositories significantly larger than this, range-limiting options (`--since-ref`, `--since-date`) reduce the traversal scope proportionally.
 
-### Across Runs (known limitation)
+### Across Runs (merge base deduplication)
 
-Session-level deduplication does not protect against cross-run duplicates when a **new branch is added mid-operation**. Consider the following scenario:
+When a new branch is added to `--branch` in an incremental run, gitrail automatically deduplicates
+against prior runs by computing the merge base between the new branch and all branches already
+recorded in the state file, then using that merge base as `excludeHash` for the new branch's
+traversal.
+
+**Algorithm (pre-loop step, incremental mode only):**
+
+1. Identify new branches: present in `config.branches` but absent from `stateMap`.
+2. If any new branches exist and `stateMap.size > 0`:
+   - Collect `existingHeads`: the `lastCommitHash` values from `stateMap` (the prior-run HEADs —
+     consistent with how existing branches use state values; avoids extra `resolveRef()` calls).
+   - Call `adapter.findMergeBase(repoPath, existingHeads)`.
+   - If result is non-null: use as `excludeHash` for all new branches in this run.
+   - If result is `null` (no common ancestor): fall back to full traversal for those branches.
+3. If `stateMap.size === 0`: no existing HEADs to compute against; all branches are fully
+   extracted. This is the expected behavior on the first incremental run.
+
+**Example:**
 
 ```
-Run 1: --branch main         → outputs commits 1, 2, 3. state: { main: "3" }
+Run 1: --branch main         → outputs [3, 2, 1]. state: { main: "3" }
 Run 2: --branch main --branch develop
-         main   → differential from "3" ✅ (no duplicates)
-         develop → no prior state → full traversal → outputs 5, 4, 3, 2, 1 ❌ (1,2,3 already output)
+         main   → excludeHash = "3" (from state) → differential → no new commits in this example
+         develop → new; existingHeads = ["3"]; findMergeBase → "3"
+                   excludeHash = "3" → yields [5, 4] only ✅ (no duplicates)
 ```
 
-**This is a known limitation of the initial implementation.**
+**Fallback — no common ancestor:**
 
-Design rationale: the primary use case is continuously extracting stable, long-lived branches (e.g. `main`, `develop`). Adding a new branch mid-operation is an atypical scenario. When it occurs, the recommended recovery is to discard prior output and re-run from scratch (full extraction).
+If `findMergeBase` returns `null` (e.g. an orphan branch with detached history), fall back to full
+traversal for the new branch. Duplicate commits may appear in the output in this case.
 
-### Future Work: Cross-Run Deduplication for New Branches
-
-A future implementation may resolve this by computing the merge base between a newly added branch and all existing branches at the start of a run, and using that merge base as the `excludeHash` for the new branch's traversal. This would require:
-
-1. Detecting branches present in `--branch` args but absent from the state file (already done in Branch Reconciliation)
-2. Computing `mergeBase(newBranch, existingBranch1, existingBranch2, ...)` via isomorphic-git
-3. Using the merge base hash as `excludeHash` for the new branch
-4. Recording the merge base in the state file for subsequent runs
-
-This approach does not require storing all previously output hashes and has bounded impact on the overall processing flow. It is a candidate for Phase 2 implementation.
+Recovery: discard prior output and re-run with `--mode snapshot` across all branches, then resume
+incremental extraction.

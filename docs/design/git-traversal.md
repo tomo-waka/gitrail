@@ -156,36 +156,79 @@ Outcome:
 
 ### Across runs
 
-Known limitation:
+When a new branch is added to `--branch` in an incremental run, gitrail automatically deduplicates
+against prior runs using **merge base computation**.
 
-- If a new branch is added later, previously exported commits can reappear for that new branch because prior run deduplication state is not persisted at commit granularity.
-
-Visual:
+**Repository topology used in the examples below:**
 
 ```mermaid
 gitGraph
 	commit id: "1"
 	commit id: "2"
-	commit id: "3"
-	branch develop
-	checkout develop
+	branch release
+	checkout release
 	commit id: "4"
 	commit id: "5"
+	checkout main
+	branch develop
+	checkout develop
+	commit id: "A"
+	commit id: "B"
+	checkout main
+	commit id: "3"
 ```
 
-Why duplicates happen in this case:
+Both `release` and `develop` branch from commit `2`. `release` and `main` advance independently
+afterward; `develop` is the branch being added in Run 2.
 
-- Run 1 uses `--branch main` only.
-- Run 1 output list is `[3, 2, 1]`, and state becomes `{ main: "3" }`.
-- Run 2 uses `--branch main --branch develop`.
-- For `main`, differential from state hash `3` yields no new commits in this example.
-- For `develop`, no prior state exists, so extraction for that branch is full.
-- `develop` traversal yields `[5, 4, 3, 2, 1]`.
-- Duplicates are therefore `[3, 2, 1]`, because run-level deduplication does not persist across executions.
+**Why naive full traversal produces duplicates:**
 
-Current recommendation:
+- Run 1 uses `--branch main --branch release`.
+- Run 1 output (session-deduplicated): `[3, 2, 1, 5, 4]`. State: `{ main: "3", release: "5" }`.
+- Run 2 uses `--branch main --branch release --branch develop`.
+- For `main`: differential from state hash `"3"` → no new commits in this example.
+- For `release`: differential from state hash `"5"` → no new commits in this example.
+- For `develop`: no prior state → without deduplication, full traversal yields `[B, A, 2, 1]`.
+- Commits `2, 1` would be duplicated.
 
-- For strict global uniqueness after branch-set changes, run a clean extraction workflow.
+**How merge base deduplication prevents this:**
+
+Before the per-branch traversal loop, gitrail identifies new branches (present in `--branch` args
+but absent from the state file). If the state file already contains at least one branch, gitrail
+calls `adapter.findMergeBase()` with the `lastCommitHash` values from the state file as `oids`.
+The returned hash is used as `excludeHash` for all new branches, applying the same exclusion
+mechanism used for existing branches in incremental extraction.
+
+For the scenario above:
+
+- `develop` is new. Existing state HEADs: `["3", "5"]` (from `{ main: "3", release: "5" }`).
+- `findMergeBase(["3", "5"])` = commit `"2"` — the deepest common ancestor of `main` and `release`.
+- `develop` traversal with `excludeHash = "2"` → yields only `[B, A]`. No duplicates. ✅
+
+**Algorithm (pre-loop step):**
+
+1. Identify new branches: present in `config.branches` but absent from `stateMap`.
+2. If new branches exist and `stateMap.size > 0`:
+   - Collect `existingHeads`: the `lastCommitHash` values from `stateMap` (the prior-run HEADs,
+     not current HEADs — consistent with how existing branches use state values, and avoids extra
+     `resolveRef()` calls).
+   - Call `adapter.findMergeBase(repoPath, existingHeads)`.
+   - If result is non-null: use as `excludeHash` for all new branches.
+   - If result is `null` (no common ancestor): fall back to full traversal for those branches.
+3. If `stateMap.size === 0` (first incremental run): no existing HEADs to compute against; all
+   branches are fully extracted. This is the expected initialization behavior.
+
+**Note:** only one merge base is computed regardless of how many new branches are added.
+`findMergeBase` receives all existing HEADs at once; the result is the deepest common ancestor
+across all of them, and the same `excludeHash` applies to every new branch.
+
+**Fallback — no common ancestor:**
+
+If `findMergeBase` returns `null` (e.g. an orphan branch with detached history), gitrail falls
+back to full traversal for the new branch. Duplicate commits may appear in the output.
+
+Recovery: discard prior output and re-run with `--mode snapshot` across all branches, then resume
+incremental extraction.
 
 ## State file lifecycle
 
@@ -233,7 +276,6 @@ This approach prioritizes successful extraction with explicit warnings in recove
 
 ## Future enhancement candidates
 
-- Merge-base-assisted cross-run deduplication when branch sets change.
 - Progress and summary reporting tied to traversal counters.
 - Heuristics to reduce exclusion set walk cost for very large repositories.
 
