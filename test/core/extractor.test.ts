@@ -677,4 +677,173 @@ describe("Extractor", () => {
       'Invalid commit hash in state file for branch "main"',
     );
   });
+
+  it("cross-run deduplication: new branch in incremental mode uses merge base as excludeHash", async () => {
+    // sha1 → sha2 (main, recorded in state)
+    //    ↓
+    //   shaA → shaB  (feature branch, forked from sha1)
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+
+    const sha1 = await addCommit("a.txt", "v1", "commit 1", 1000);
+    const sha2 = await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    // Feature branch: two commits forked from sha1
+    const featureTree = (await git.readCommit({ fs, dir: "/", oid: sha1 })).commit.tree;
+    const shaA = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: featureTree,
+        parent: [sha1],
+        message: "feature A\n",
+        author: { ...AUTHOR, timestamp: 3000 },
+        committer: { ...AUTHOR, timestamp: 3000 },
+      },
+    });
+    const shaB = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: featureTree,
+        parent: [shaA],
+        message: "feature B\n",
+        author: { ...AUTHOR, timestamp: 4000 },
+        committer: { ...AUTHOR, timestamp: 4000 },
+      },
+    });
+    await git.writeRef({ fs, dir: "/", ref: "refs/heads/feature", value: shaB });
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // Run 1: snapshot — records state with main only
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Run 2: incremental with main + feature (feature is new)
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({
+          outputDir: tmpDir2,
+          stateFilePath,
+          mode: "incremental",
+          branches: ["main", "feature"],
+        }),
+        adapter,
+      ).run();
+
+      const files = await findJsonlFiles(tmpDir2);
+      const allCommits = (await Promise.all(files.map(readJsonlFile))).flat();
+      const oids = allCommits.map((c) => c.oid);
+
+      // Feature-only commits above merge base should be present
+      expect(oids).toContain(shaA);
+      expect(oids).toContain(shaB);
+
+      // sha1 and sha2 were already extracted in run 1 and must NOT appear again
+      expect(oids).not.toContain(sha1);
+      expect(oids).not.toContain(sha2);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
+  });
+
+  it("cross-run deduplication: new branch with no common ancestor falls back to full traversal", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    await addCommit("a.txt", "v1", "main commit", 1000);
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // Run 1: snapshot — records state for main
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Create an orphan commit (no parent) — a fully detached history
+    const mainHead = await adapter.resolveRef("/", "main");
+    const mainTree = (await git.readCommit({ fs, dir: "/", oid: mainHead })).commit.tree;
+    const orphanSha = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: mainTree,
+        parent: [],
+        message: "orphan commit\n",
+        author: { ...AUTHOR, timestamp: 2000 },
+        committer: { ...AUTHOR, timestamp: 2000 },
+      },
+    });
+    await git.writeRef({ fs, dir: "/", ref: "refs/heads/orphan", value: orphanSha });
+
+    // Run 2: incremental with main + orphan — no common ancestor, orphan gets full traversal
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({
+          outputDir: tmpDir2,
+          stateFilePath,
+          mode: "incremental",
+          branches: ["main", "orphan"],
+        }),
+        adapter,
+      ).run();
+
+      const files = await findJsonlFiles(tmpDir2);
+      const allCommits = (await Promise.all(files.map(readJsonlFile))).flat();
+      const oids = allCommits.map((c) => c.oid);
+
+      // Orphan commit should appear (full traversal for orphan branch)
+      expect(oids).toContain(orphanSha);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
+  });
+
+  it("cross-run deduplication: existing branches in incremental mode are unaffected by merge base logic", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+
+    await addCommit("a.txt", "v1", "commit 1", 1000);
+    await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // Run 1: snapshot — records state
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Add a new commit to main
+    const sha3 = await addCommit("a.txt", "v3", "commit 3", 3000);
+
+    // Run 2: incremental with main only (no new branches added)
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({ outputDir: tmpDir2, stateFilePath, mode: "incremental" }),
+        adapter,
+      ).run();
+
+      const commits = await readFirstJsonlFile(tmpDir2);
+      const oids = commits.map((c) => c.oid);
+
+      // Only the new commit should appear — merge base logic doesn't affect existing branches
+      expect(oids).toContain(sha3);
+      expect(commits).toHaveLength(1);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
+  });
 });

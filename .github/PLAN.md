@@ -363,9 +363,9 @@ _When a new branch is added to `--branch` in an incremental run, compute the mer
 
 #### Status
 
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
 
 #### Design References
 

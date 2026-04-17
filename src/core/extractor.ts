@@ -110,11 +110,28 @@ export class Extractor {
       this.config.rotation,
     );
 
+    // Identify new branches (present in config but absent from stateMap) for deduplication
+    const newBranches = new Set(
+      this.config.mode === "incremental"
+        ? this.config.branches.filter((b) => !stateMap.has(b))
+        : [],
+    );
+
     const branchHeads = new Map<string, CommitHash>();
     const visited = new Set<string>();
     let commitsWritten = 0;
 
     try {
+      // In incremental mode, compute merge base of existing branches to use as
+      // excludeHash for newly added branches, preventing cross-run duplicates
+      let newBranchExcludeHash: CommitHash | undefined;
+      if (newBranches.size > 0 && stateMap.size > 0) {
+        const mergeBase = await this.adapter.findMergeBase(repoPath, Array.from(stateMap.values()));
+        if (mergeBase !== null) {
+          newBranchExcludeHash = mergeBase;
+        }
+      }
+
       for (const branch of this.config.branches) {
         let head: CommitHash;
         try {
@@ -136,6 +153,10 @@ export class Extractor {
           const lastHash = stateMap.get(branch);
           if (lastHash !== undefined) {
             excludeHash = lastHash;
+          } else if (newBranches.has(branch) && newBranchExcludeHash !== undefined) {
+            // New branch in incremental mode: use merge base of existing branches
+            // to avoid re-extracting commits already present in prior runs
+            excludeHash = newBranchExcludeHash;
           }
         } else {
           const range = this.config.range;

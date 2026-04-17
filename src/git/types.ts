@@ -26,4 +26,8 @@ export interface GitAdapter {
 
   /** Return the remote URL for `origin`, or null if not set */
   getRemoteUrl(repoPath: string): Promise<string | null>;
+
+  /** Find the lowest common ancestor of all given commit hashes.
+   *  Returns null if no common ancestor exists (detached histories). */
+  findMergeBase(repoPath: string, oids: readonly CommitHash[]): Promise<CommitHash | null>;
 }

@@ -108,6 +108,24 @@ export class IsomorphicGitAdapter implements GitAdapter {
     }
   }
 
+  async findMergeBase(repoPath: string, oids: readonly CommitHash[]): Promise<CommitHash | null> {
+    try {
+      const result = await git.findMergeBase({
+        fs: this._fs,
+        dir: repoPath,
+        oids: oids as unknown as string[],
+      });
+      if (result.length === 0) return null;
+      return result[0] as CommitHash;
+    } catch (err) {
+      throw new GitAdapterError(
+        `Unexpected error finding merge base: ${String(err)}`,
+        "MERGE_BASE_NOT_FOUND",
+        err,
+      );
+    }
+  }
+
   private async _collectReachable(repoPath: string, startHash: string): Promise<Set<string>> {
     const reachable = new Set<string>();
     const queue = [startHash];
