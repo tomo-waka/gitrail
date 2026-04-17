@@ -1,6 +1,6 @@
 import * as git from "isomorphic-git";
 import { Volume, createFsFromVolume } from "memfs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RawCommit } from "../../src/git/index.js";
 import { IsomorphicGitAdapter } from "../../src/git/isomorphic-git-adapter.js";
@@ -264,5 +264,79 @@ describe("IsomorphicGitAdapter.resolveRef", () => {
     const adapter = new IsomorphicGitAdapter(fs);
     const resolved = await adapter.resolveRef("/", "main");
     expect(resolved).toBe(sha);
+  });
+});
+
+describe("IsomorphicGitAdapter.findMergeBase", () => {
+  it("returns the common ancestor for a forked history", async () => {
+    // Build:  sha1 → sha2 (main)
+    //                ↓
+    //               shaA (feature)
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    const sha1 = await addCommit("a.txt", "v1", "commit 1", 1000);
+    const sha2 = await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    // Feature branch diverges from sha1
+    const treeForFeature = (await git.readCommit({ fs, dir: "/", oid: sha1 })).commit.tree;
+    const shaA = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: treeForFeature,
+        parent: [sha1],
+        message: "feature A\n",
+        author: { ...AUTHOR, timestamp: 3000 },
+        committer: { ...AUTHOR, timestamp: 3000 },
+      },
+    });
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    // Merge base of sha2 and shaA should be sha1 (their common ancestor)
+    const result = await adapter.findMergeBase("/", [sha2, shaA] as never);
+    expect(result).toBe(sha1);
+  });
+
+  it("returns null for detached histories (no common ancestor)", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    const sha1 = await addCommit("a.txt", "v1", "main commit", 1000);
+
+    // Create an orphan commit with no parents
+    const existingTree = (await git.readCommit({ fs, dir: "/", oid: sha1 })).commit.tree;
+    const orphanSha = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: existingTree,
+        parent: [],
+        message: "orphan commit\n",
+        author: { ...AUTHOR, timestamp: 2000 },
+        committer: { ...AUTHOR, timestamp: 2000 },
+      },
+    });
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    // sha1 and orphanSha have no common ancestor
+    const result = await adapter.findMergeBase("/", [sha1, orphanSha] as never);
+    expect(result).toBeNull();
+  });
+
+  it("wraps unexpected errors as MERGE_BASE_NOT_FOUND", async () => {
+    const { fs, init } = makeRepo();
+    await init();
+
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // Force git.findMergeBase to throw an unexpected error
+    const spy = vi.spyOn(git, "findMergeBase").mockRejectedValueOnce(new Error("internal error"));
+
+    try {
+      await expect(adapter.findMergeBase("/", ["a".repeat(40)] as never)).rejects.toMatchObject({
+        code: "MERGE_BASE_NOT_FOUND",
+      });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

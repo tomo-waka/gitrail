@@ -13,6 +13,58 @@ Normative implementation rules remain in:
 
 Use this document to understand design intent, boundaries, and trade-offs.
 
+## Product Context
+
+### What gitrail is for
+
+gitrail is an ETL bridge between Git repositories and analytical systems (data warehouses, BI
+tools, metrics pipelines). It converts Git's graph-structured commit history into a flat,
+streaming-friendly format that analytical systems can ingest without understanding Git internals.
+
+Git history is a rich source of engineering data. Two broad analytical dimensions motivate its
+extraction:
+
+- **People dimension**: developer activity patterns, authorship, commit frequency, team velocity,
+  review and collaboration signals.
+- **Product dimension**: release cadence, codebase evolution, branch lifecycle, technical debt
+  indicators, change velocity by area.
+
+gitrail's responsibility is faithful extraction. Interpretation — deriving metrics, aggregations,
+or insights from the data — belongs to the downstream system.
+
+### When incremental extraction matters
+
+Snapshot extraction (re-extracting all history on every run) is sufficient for one-time analyses
+or small repositories. Incremental extraction becomes necessary when:
+
+- The repository is continuously updated and the downstream system needs to stay in sync.
+- Re-processing full history on every run is too slow or too costly.
+- The downstream system uses an append-only or event-sourced ingestion model.
+
+In these cases, `--mode incremental` with a state file provides a reliable checkpoint mechanism.
+
+### Key implications of Git's data model
+
+Several properties of Git's data model directly constrain what gitrail can and cannot guarantee.
+These are not limitations of gitrail — they are fundamental properties of Git objects:
+
+**Output order is not chronological.** gitrail traverses the commit DAG using BFS. Across merge
+branches, BFS order does not match commit timestamp order. Downstream systems must sort by
+`committer.timestamp` if chronological order is required; they must not rely on line order in
+`.jsonl` output files.
+
+**Commits carry no branch information.** A Git commit object stores only tree, parents, author,
+committer, and message. There is no branch field. "Extracting branch X" means "walk the DAG from
+the commit that ref X currently points to." The same commit can be reachable from multiple
+branches simultaneously.
+
+**Branch refs are mutable.** A branch pointer moves forward with new commits and can be rewritten
+by a force-push. Extracted data represents a snapshot of the repository at extraction time. Branch
+attribution inferred at extraction time may not hold after the repository changes.
+
+**gitrail's correctness guarantee:** every commit reachable from the specified refs, within the
+specified range, appears exactly once in a single run's output.
+
 ## System Overview
 
 gitrail is a Node.js CLI that extracts commit history from a local Git repository and writes one commit per line as JSON Lines.
@@ -57,7 +109,7 @@ Files:
 Responsibilities:
 
 - Coordinate branch traversal through the adapter.
-- Apply differential behavior for `--state`, `--since-commit`, and `--since-date`.
+- Apply differential behavior for `--state`, `--since-ref`, and `--since-date`.
 - Deduplicate commits across branches in one run.
 - Map raw commit data to output schema objects.
 - Coordinate output writer lifecycle.

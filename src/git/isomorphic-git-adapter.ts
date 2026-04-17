@@ -3,6 +3,7 @@ import nodeFs from "node:fs";
 import * as git from "isomorphic-git";
 import type { FsClient } from "isomorphic-git";
 
+import type { CommitHash } from "../core/index.js";
 import { GitAdapterError } from "./errors.js";
 import type { GitAdapter, RawCommit } from "./index.js";
 
@@ -13,9 +14,9 @@ export class IsomorphicGitAdapter implements GitAdapter {
     this._fs = fsImpl ?? (nodeFs as FsClient);
   }
 
-  async resolveRef(repoPath: string, ref: string): Promise<string> {
+  async resolveRef(repoPath: string, ref: string): Promise<CommitHash> {
     try {
-      return await git.resolveRef({ fs: this._fs, dir: repoPath, ref });
+      return (await git.resolveRef({ fs: this._fs, dir: repoPath, ref })) as CommitHash;
     } catch (err) {
       if (err instanceof Error) {
         const name = err.name;
@@ -60,8 +61,8 @@ export class IsomorphicGitAdapter implements GitAdapter {
 
   async *walkCommits(
     repoPath: string,
-    head: string,
-    excludeHash?: string,
+    head: CommitHash,
+    excludeHash?: CommitHash,
   ): AsyncIterable<RawCommit> {
     const excluded = excludeHash
       ? await this._collectReachable(repoPath, excludeHash)
@@ -82,7 +83,7 @@ export class IsomorphicGitAdapter implements GitAdapter {
       });
 
       yield {
-        oid: hash,
+        oid: hash as CommitHash,
         message: commit.message,
         author: {
           name: commit.author.name,
@@ -104,6 +105,24 @@ export class IsomorphicGitAdapter implements GitAdapter {
           queue.push(parent);
         }
       }
+    }
+  }
+
+  async findMergeBase(repoPath: string, oids: readonly CommitHash[]): Promise<CommitHash | null> {
+    try {
+      const result = await git.findMergeBase({
+        fs: this._fs,
+        dir: repoPath,
+        oids: oids as unknown as string[],
+      });
+      if (result.length === 0) return null;
+      return result[0] as CommitHash;
+    } catch (err) {
+      throw new GitAdapterError(
+        `Unexpected error finding merge base: ${String(err)}`,
+        "MERGE_BASE_NOT_FOUND",
+        err,
+      );
     }
   }
 

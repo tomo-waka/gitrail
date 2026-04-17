@@ -3,6 +3,7 @@ export type GitAdapterErrorCode =
   | "COMMIT_NOT_FOUND"
   | "NOT_A_REPOSITORY"
   | "REMOTE_NOT_FOUND"
+  | "MERGE_BASE_NOT_FOUND"
   | "UNKNOWN";
 
 export class GitAdapterError extends Error {
