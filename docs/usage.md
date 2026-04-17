@@ -213,13 +213,19 @@ in the order `--branch` arguments were given.
 
 ### Adding a new branch to an existing incremental workflow
 
-If a branch is listed in `--branch` but has no entry in the state file, gitrail performs a full
-traversal for that branch. If it shares history with already-extracted branches, duplicate commits
-may appear in the output.
+When a branch listed in `--branch` has no entry in the state file, gitrail automatically prevents
+cross-run duplicates. It computes the **merge base** of all branches already recorded in the
+state file and uses that commit as the extraction boundary for the new branch, excluding commits
+already output in prior runs.
 
-**Recovery:** if duplicates are unacceptable, discard prior output and re-run with
-`--mode snapshot` across all branches together to re-extract cleanly, then resume incremental
-extraction.
+**Fallback — no common ancestor:** if the new branch shares no history with any branch in the
+state (e.g. an orphan branch created with `git checkout --orphan`), gitrail cannot find a merge
+base and falls back to full traversal for that branch. Duplicate commits may appear in the output
+in this case. If duplicates are unacceptable, discard prior output and re-run with
+`--mode snapshot` across all branches to re-extract cleanly, then resume incremental extraction.
+
+For the detailed algorithm and worked examples see
+[Git Traversal design](design/git-traversal.md#across-runs).
 
 ---
 

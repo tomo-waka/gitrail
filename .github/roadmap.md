@@ -57,30 +57,22 @@ The `--help` output lists all options in a flat list with no grouping. The jump 
 
 ---
 
-### Medium-term
+#### CLI UX: `--rotate-size` human-readable size suffixes
 
-#### Refactor: `Extractor.run()` decomposition and structural clarity
+`--rotate-size` currently accepts a raw byte count. In practice, users specify thresholds like 500 MB or 1 GB, making raw byte values impractical to type and error-prone to read.
 
-`Extractor.run()` has grown incrementally as features were added across releases. The method currently handles five distinct concerns in sequence: session initialization, state file reading and validation, merge-base computation for new branches, per-branch traversal with fallback, and state file writing. Each concern is currently expressed as a flat block of imperative code within a single method body.
+Supporting suffixes such as `--rotate-size 500M` or `--rotate-size 1G` would align the option with the conventions used by popular CLI tools (e.g. GNU `split`, `logrotate`).
 
-**Goals**:
+**Considerations to resolve at implementation time**:
 
-- Extract each concern into a focused private method (e.g. `initializeStateMap()`, `computeNewBranchExclude()`, `processBranch()`, `buildExcludeHash()`)
-- Reduce the cognitive load of `run()` to orchestration only: calling helpers in sequence, managing the writer lifetime, and propagating results
-- Make future feature additions localized: a change to state-reading logic should touch only the state-reading helper, not the entire method
-
-**On the "declarative" direction**:
-
-Per-branch processing is naturally expressed as a `for...of` loop over `config.branches`. The architecture specification requires sequential, non-interleaved output (all commits from branch N before branch N+1 begins). Converting this to an `async forEach` or `Promise.all` pattern would risk violating this ordering guarantee and is explicitly out of scope. The intended "declarative" improvement is to extract the loop body into a named `processBranch(branch, context)` function — making the per-branch unit independently readable and testable — while keeping the loop itself as a sequential `for...of`.
-
-**Candidate private method boundaries** (to be refined at implementation time):
-
-- `initializeStateMap(): Promise<Map<string, CommitHash>>` — reads, validates, and populates the state map
-- `computeNewBranchExclude(newBranches: Set<string>, stateMap: Map<string, CommitHash>): Promise<CommitHash | undefined>` — merge-base computation for cross-run deduplication
-- `buildExcludeHash(branch: string, stateMap: Map, newBranchExclude: CommitHash | undefined): CommitHash | undefined` — `excludeHash` selection logic per branch
-- `processBranch(branch, context): Promise<void>` — ref resolution, commit walk, fallback, and write loop for a single branch
+- Which suffixes to accept (`K`, `M`, `G`; case-insensitive or not)
+- Base convention: binary (1 K = 1024) vs. decimal (1 K = 1000) — survey popular CLI tools for the dominant convention at implementation time
+- Whether to continue accepting a plain integer as a raw byte count for backward compatibility
+- Error message wording for unrecognized suffix values
 
 ---
+
+### Medium-term
 
 #### Output: Configurable field inclusion/exclusion
 
@@ -189,6 +181,31 @@ Introducing this flag well before the actual migration serves two purposes:
 - Refactor all non-erasable syntax to comply. Based on the current codebase, the only known instance is the parameter property in `NodeStateStore` (`src/index.ts`); expand the field declaration explicitly
 
 **Why now**: The required refactoring is minimal (one site) and mechanically straightforward. The cost of introducing the flag early is low; the cost of discovering violations late — after more code has been written — grows over time.
+
+---
+
+### Medium-term
+
+#### Refactor: `Extractor.run()` decomposition and structural clarity
+
+`Extractor.run()` has grown incrementally as features were added across releases. The method currently handles five distinct concerns in sequence: session initialization, state file reading and validation, merge-base computation for new branches, per-branch traversal with fallback, and state file writing. Each concern is currently expressed as a flat block of imperative code within a single method body.
+
+**Goals**:
+
+- Extract each concern into a focused private method (e.g. `initializeStateMap()`, `computeNewBranchExclude()`, `processBranch()`, `buildExcludeHash()`)
+- Reduce the cognitive load of `run()` to orchestration only: calling helpers in sequence, managing the writer lifetime, and propagating results
+- Make future feature additions localized: a change to state-reading logic should touch only the state-reading helper, not the entire method
+
+**On the "declarative" direction**:
+
+Per-branch processing is naturally expressed as a `for...of` loop over `config.branches`. The architecture specification requires sequential, non-interleaved output (all commits from branch N before branch N+1 begins). Converting this to an `async forEach` or `Promise.all` pattern would risk violating this ordering guarantee and is explicitly out of scope. The intended "declarative" improvement is to extract the loop body into a named `processBranch(branch, context)` function — making the per-branch unit independently readable and testable — while keeping the loop itself as a sequential `for...of`.
+
+**Candidate private method boundaries** (to be refined at implementation time):
+
+- `initializeStateMap(): Promise<Map<string, CommitHash>>` — reads, validates, and populates the state map
+- `computeNewBranchExclude(newBranches: Set<string>, stateMap: Map<string, CommitHash>): Promise<CommitHash | undefined>` — merge-base computation for cross-run deduplication
+- `buildExcludeHash(branch: string, stateMap: Map, newBranchExclude: CommitHash | undefined): CommitHash | undefined` — `excludeHash` selection logic per branch
+- `processBranch(branch, context): Promise<void>` — ref resolution, commit walk, fallback, and write loop for a single branch
 
 ---
 
