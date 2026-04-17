@@ -57,6 +57,21 @@ The `--help` output lists all options in a flat list with no grouping. The jump 
 
 ---
 
+#### CLI UX: `--rotate-size` human-readable size suffixes
+
+`--rotate-size` currently accepts a raw byte count. In practice, users specify thresholds like 500 MB or 1 GB, making raw byte values impractical to type and error-prone to read.
+
+Supporting suffixes such as `--rotate-size 500M` or `--rotate-size 1G` would align the option with the conventions used by popular CLI tools (e.g. GNU `split`, `logrotate`).
+
+**Considerations to resolve at implementation time**:
+
+- Which suffixes to accept (`K`, `M`, `G`; case-insensitive or not)
+- Base convention: binary (1 K = 1024) vs. decimal (1 K = 1000) — survey popular CLI tools for the dominant convention at implementation time
+- Whether to continue accepting a plain integer as a raw byte count for backward compatibility
+- Error message wording for unrecognized suffix values
+
+---
+
 ### Medium-term
 
 #### Refactor: `Extractor.run()` decomposition and structural clarity
