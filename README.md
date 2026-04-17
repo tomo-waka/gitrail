@@ -1,18 +1,18 @@
 # gitrail
 
-A CLI tool that extracts Git repository commit history and outputs it as [JSON Lines](https://jsonlines.org/) (`.jsonl`) files, suitable for ingestion into data warehouses and analytical systems.
+A CLI tool that extracts commit history from a local Git repository and outputs it as [JSON Lines](https://jsonlines.org/) (`.jsonl`) files, suitable for ingestion into data warehouses and analytical systems.
 
 ## Features
 
-- Reads Git repository data via [isomorphic-git](https://isomorphic-git.org/) — no system-installed Git required
+- Reads the local `.git` directory directly via [isomorphic-git](https://isomorphic-git.org/) — no `git` CLI required at runtime
 - Outputs one commit per line in JSON Lines format
-- Supports incremental (differential) extraction via a state file
+- Explicit extraction modes: `--mode snapshot` for independent extraction, `--mode incremental` for differential extraction using a state file
 - Handles multi-branch extraction with cross-branch deduplication
 
 ## Requirements
 
 - Node.js ≥ 22.0.0
-- No system-installed Git required (uses isomorphic-git)
+- A local Git repository (cloned and fetched via your preferred method — gitrail reads `.git` data directly and does not require the `git` CLI)
 
 ## Installation
 
@@ -23,15 +23,16 @@ npm install -g gitrail
 ## Quick Start
 
 ```bash
-# 1. Full extraction — creates gitrail-000001.jsonl in the current directory
-gitrail --branch main ./my-repo
+# One-time extraction from a local clone
+gitrail -b main ./my-repo
 
-# 2. Subsequent incremental run — only commits added since the last run are written
-gitrail --branch main --state ./gitrail-state.json ./my-repo
-
-# On the first run above the state file is created automatically.
-# On subsequent runs only new commits are extracted.
+# Continuous extraction — fetch remote changes, then extract new commits
+git -C ./my-repo fetch origin
+gitrail -m incremental -b origin/main -s ./gitrail-state.json --on-missing-state snapshot ./my-repo
 ```
+
+See the [User Guide](docs/usage.md) for detailed workflow patterns including incremental setup,
+release-tag-based extraction, and CI configuration.
 
 ## CLI Reference
 
@@ -39,45 +40,28 @@ gitrail --branch main --state ./gitrail-state.json ./my-repo
 gitrail [options] <repository-path>
 ```
 
-| Parameter                  | Type       | Required | Default                    | Description                                                    |
-| -------------------------- | ---------- | -------- | -------------------------- | -------------------------------------------------------------- |
-| `<repository-path>`        | positional | ✅       | —                          | Local path to the Git repository                               |
-| `--branch <ref>`           | string     | ✅       | —                          | Ref to start traversal from. Repeatable for multiple branches. |
-| `--output-dir <path>`      | string     |          | `./`                       | Directory for output `.jsonl` files                            |
-| `--output-prefix <string>` | string     |          | derived from remote origin | Filename prefix for output files                               |
-| `--state <path>`           | string     |          | —                          | State file for incremental extraction                          |
-| `--since-commit <hash>`    | string     |          | —                          | Extract commits newer than this hash (exclusive)               |
-| `--since-date <ISO8601>`   | string     |          | —                          | Extract commits after this datetime                            |
-| `--rotate-lines <n>`       | number     |          | —                          | Start new file after `n` lines                                 |
-| `--rotate-size <bytes>`    | number     |          | —                          | Start new file after `n` bytes                                 |
-| `--quiet`                  | boolean    |          | `false`                    | Suppress progress and summary output for automation            |
+| Parameter                  | Alias | Type                      | Required | Default    | Description                                                                                                     |
+| -------------------------- | ----- | ------------------------- | -------- | ---------- | --------------------------------------------------------------------------------------------------------------- |
+| `<repository-path>`        |       | positional                | ✅       | —          | Local path to the Git repository                                                                                |
+| `--mode`                   | `-m`  | `snapshot \| incremental` |          | `snapshot` | Extraction mode. `snapshot` runs independently of state; `incremental` reads state to extract only new commits. |
+| `--branch <ref>`           | `-b`  | string (repeatable)       | ✅       | —          | Ref to traverse from. Specify one or more times.                                                                |
+| `--output-dir <path>`      | `-o`  | string                    |          | `./`       | Directory for output `.jsonl` files                                                                             |
+| `--output-prefix <string>` |       | string                    |          | derived    | Filename prefix (derived from remote origin if omitted)                                                         |
+| `--state <path>`           | `-s`  | string                    |          | —          | State file path. Required with `--mode incremental`.                                                            |
+| `--on-missing-state`       |       | `error \| snapshot`       |          | `error`    | Behavior when state file is absent. Only valid with `--mode incremental`.                                       |
+| `--since-ref <ref>`        |       | string                    |          | —          | Exclude commits reachable from this ref (tag, branch, or hash). Snapshot mode only.                             |
+| `--since-date <ISO8601>`   |       | string                    |          | —          | Include only commits after this datetime. Snapshot mode only.                                                   |
+| `--rotate-lines <n>`       |       | number                    |          | —          | Start new file after `n` lines                                                                                  |
+| `--rotate-size <bytes>`    |       | number                    |          | —          | Start new file after `n` bytes                                                                                  |
+| `--quiet`                  | `-q`  | boolean                   |          | `false`    | Suppress progress and summary output                                                                            |
 
-### Help and runtime output
+Progress updates and the final summary are written to **stderr**; use `--quiet` to suppress them.
+Validation errors exit with code `1`; runtime errors with code `2`. See the
+[User Guide](docs/usage.md#cli-reference) for the full list of mutual exclusion rules.
 
-- Run `gitrail --help` to display the full supported option list and descriptions.
-- During extraction, progress updates and the final completion summary are written to **stderr**.
-- Use `--quiet` for CI, cron, and scripted runs when you want to suppress non-error status output.
-- Validation and runtime errors are also written to **stderr** and use the exit codes listed below.
+## Output
 
-### Mutual exclusion rules
-
-The following combinations are invalid and produce exit code 1:
-
-- `--since-commit` and `--since-date` cannot be used together
-- `--state` and `--since-commit` cannot be used together
-- `--state` and `--since-date` cannot be used together
-
-### Exit codes
-
-| Code | Meaning                                                    |
-| ---- | ---------------------------------------------------------- |
-| `0`  | Success                                                    |
-| `1`  | User error (invalid arguments, repository not found, etc.) |
-| `2`  | Runtime error (I/O failure, unexpected Git error, etc.)    |
-
-## Output Format
-
-Each line is a JSON object representing one commit:
+Each line in the output `.jsonl` file is a JSON object representing one commit:
 
 ```json
 {
@@ -111,71 +95,21 @@ Each line is a JSON object representing one commit:
 | `repository.name`                          | Repository name derived from remote origin URL (falls back to directory name)               |
 | `repository.url`                           | Remote origin URL, or `null` if no remote is configured                                     |
 
-## Incremental Extraction
+Output files are named `<prefix>-<timestamp>-000001.jsonl`, `<prefix>-<timestamp>-000002.jsonl`, and so on. The prefix is
+derived from the repository's remote origin URL; use `--output-prefix` to override. The timestamp
+segment (`YYYYMMDDTHHmmssZ`) is captured once per session, so all files from a single run share
+the same timestamp and will not overwrite files produced by earlier runs. Use
+`--rotate-lines` or `--rotate-size` to split output across multiple files.
 
-Use `--state` for efficient incremental runs against the same repository:
+> **Note:** Output line order is not guaranteed to be chronological. Sort by `committer.timestamp`
+> in your downstream system.
 
-```bash
-# First run: full extraction — all commits are written, state file is created
-gitrail --branch main --state ./gitrail-state.json ./my-repo
+## Documentation
 
-# Subsequent runs: only commits added since the last run are written
-gitrail --branch main --state ./gitrail-state.json ./my-repo
-```
-
-The state file records the last extracted commit hash per branch. On subsequent runs, only commits
-reachable from the branch tip that are **not** reachable from the recorded commit are extracted.
-
-If the state file is deleted, the next run falls back to full extraction automatically.
-
-## Output File Naming
-
-Output files are named `<prefix>-000001.jsonl`, `<prefix>-000002.jsonl`, and so on.
-
-**Prefix derivation** (when `--output-prefix` is not specified):
-
-1. Read the remote origin URL of the repository
-2. Take the last path segment and strip the `.git` suffix (e.g. `https://github.com/org/my-repo.git` → `my-repo`)
-3. If no remote origin is configured, fall back to the repository directory name
-
-Use `--output-prefix` to override this logic entirely.
-
-**File rotation** is triggered when either threshold is reached:
-
-- `--rotate-lines <n>` — start a new file after writing `n` lines
-- `--rotate-size <bytes>` — start a new file after the file exceeds `n` bytes
-
-Both thresholds can be combined; rotation occurs as soon as either is exceeded.
-
-## Usage Examples
-
-```bash
-# Full extraction of the main branch
-gitrail --branch main ./my-repo
-
-# Multiple branches, custom output directory
-gitrail --branch main --branch develop --output-dir ./output ./my-repo
-
-# Incremental extraction using a state file
-gitrail --branch main --state ./gitrail-state.json ./my-repo
-
-# Differential extraction from a specific commit
-gitrail --branch main --since-commit abc123def456 ./my-repo
-
-# With file rotation (new file every 10,000 lines or 100 MB)
-gitrail --branch main --rotate-lines 10000 --rotate-size 104857600 ./my-repo
-
-# Quiet mode for automation
-gitrail --branch main --state ./gitrail-state.json --quiet ./my-repo
-```
-
-## Project Information
-
+- [User Guide](docs/usage.md) — detailed workflows, mode explanations, and full CLI reference
 - [Changelog](CHANGELOG.md) — release history and notable changes by version
 
 ## Developer Guide
-
-Developer-oriented references:
 
 - [Contributing Guide](CONTRIBUTING.md) — local setup, quality checks, and pull request workflow
 - [Architecture](docs/design/architecture.md) — layer responsibilities, end-to-end flow, and key design decisions

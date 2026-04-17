@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import * as git from "isomorphic-git";
 import { Volume, createFsFromVolume } from "memfs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Extractor } from "../../src/core/extractor.js";
-import type { ExtractorConfig, StateFile } from "../../src/core/index.js";
+import type { ExtractorConfig, Reporter, StateFile, StateStore } from "../../src/core/index.js";
+import { GitAdapterError } from "../../src/git/index.js";
 import { IsomorphicGitAdapter } from "../../src/git/isomorphic-git-adapter.js";
 import type { OutputCommit } from "../../src/output/index.js";
 
@@ -80,8 +81,76 @@ function makeConfig(
     branches: ["main"],
     outputPrefix: "repo",
     rotation: {},
+    mode: "snapshot",
     ...overrides,
   };
+}
+
+/** Creates a silent Reporter that records all calls for inspection. */
+function makeReporter(): Reporter & {
+  warnings: string[];
+  progressCalls: number[];
+  doneCalls: number[];
+} {
+  const warnings: string[] = [];
+  const progressCalls: number[] = [];
+  const doneCalls: number[] = [];
+  return {
+    warnings,
+    progressCalls,
+    doneCalls,
+    warn(message) {
+      warnings.push(message);
+    },
+    progress(n) {
+      progressCalls.push(n);
+    },
+    done(n) {
+      doneCalls.push(n);
+    },
+  };
+}
+
+/** A StateStore backed by real files for integration-style tests. */
+function makeFileStateStore(stateFilePath: string): StateStore {
+  return {
+    async read() {
+      try {
+        const raw = await readFile(stateFilePath, "utf8");
+        return JSON.parse(raw) as StateFile;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw err;
+      }
+    },
+    async write(state) {
+      const tmpPath = `${stateFilePath}.tmp`;
+      await writeFile(tmpPath, JSON.stringify(state, null, 2), "utf8");
+      await rename(tmpPath, stateFilePath);
+    },
+  };
+}
+
+/** Constructs an Extractor with default no-op stubs for injected dependencies. */
+function makeExtractor(
+  config: ExtractorConfig,
+  adapter: IsomorphicGitAdapter,
+  overrides: { reporter?: Reporter; stateStore?: StateStore } = {},
+): Extractor {
+  const stateStore =
+    overrides.stateStore !== undefined
+      ? overrides.stateStore
+      : config.stateFilePath
+        ? makeFileStateStore(config.stateFilePath)
+        : undefined;
+  return new Extractor(
+    config,
+    adapter,
+    overrides.reporter ?? makeReporter(),
+    () => new Date(),
+    () => 0,
+    stateStore,
+  );
 }
 
 async function readJsonlFile(filePath: string): Promise<OutputCommit[]> {
@@ -90,6 +159,22 @@ async function readJsonlFile(filePath: string): Promise<OutputCommit[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as OutputCommit);
+}
+
+/** Returns sorted absolute paths of all .jsonl files in a directory. */
+async function findJsonlFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir);
+  return entries
+    .filter((e) => e.endsWith(".jsonl"))
+    .sort()
+    .map((e) => join(dir, e));
+}
+
+/** Reads all commits from the first .jsonl file found in a directory. */
+async function readFirstJsonlFile(dir: string): Promise<OutputCommit[]> {
+  const files = await findJsonlFiles(dir);
+  if (files.length === 0) throw new Error(`No .jsonl files found in ${dir}`);
+  return readJsonlFile(files[0]!);
 }
 
 describe("Extractor", () => {
@@ -113,10 +198,10 @@ describe("Extractor", () => {
 
     const adapter = new IsomorphicGitAdapter(fs);
     const config = makeConfig({ outputDir: tmpDir });
-    const extractor = new Extractor(config, adapter);
+    const extractor = makeExtractor(config, adapter);
     await extractor.run();
 
-    const commits = await readJsonlFile(join(tmpDir, "repo-000001.jsonl"));
+    const commits = await readFirstJsonlFile(tmpDir);
     expect(commits).toHaveLength(3);
 
     const oids = commits.map((c) => c.oid);
@@ -131,7 +216,8 @@ describe("Extractor", () => {
     }
 
     // Verify each line is valid JSON (readJsonlFile already does this via JSON.parse)
-    const raw = await readFile(join(tmpDir, "repo-000001.jsonl"), "utf8");
+    const [firstFile] = await findJsonlFiles(tmpDir);
+    const raw = await readFile(firstFile!, "utf8");
     expect(raw).not.toContain("\r\n");
     const lines = raw.split("\n").filter(Boolean);
     expect(lines).toHaveLength(3);
@@ -154,10 +240,10 @@ describe("Extractor", () => {
       outputDir: tmpDir,
       branches: ["main", "develop"],
     });
-    const extractor = new Extractor(config, adapter);
+    const extractor = makeExtractor(config, adapter);
     await extractor.run();
 
-    const commits = await readJsonlFile(join(tmpDir, "repo-000001.jsonl"));
+    const commits = await readFirstJsonlFile(tmpDir);
 
     // sha1 and sha2 are shared; sha3 is main-only
     const oids = commits.map((c) => c.oid);
@@ -183,16 +269,16 @@ describe("Extractor", () => {
       outputDir: tmpDir,
       range: { type: "date", since },
     });
-    const extractor = new Extractor(config, adapter);
+    const extractor = makeExtractor(config, adapter);
     await extractor.run();
 
-    const commits = await readJsonlFile(join(tmpDir, "repo-000001.jsonl"));
+    const commits = await readFirstJsonlFile(tmpDir);
     const oids = commits.map((c) => c.oid);
     expect(oids).toContain(sha3); // strictly after cutoff
     expect(oids).toHaveLength(1); // only sha3 passes the filter
   });
 
-  it("--since-commit: only commits newer than the given hash are written", async () => {
+  it("--since-ref: only commits newer than the given ref hash are written", async () => {
     const { fs, init, addCommit } = makeRepo();
     await init();
 
@@ -203,12 +289,12 @@ describe("Extractor", () => {
     const adapter = new IsomorphicGitAdapter(fs);
     const config = makeConfig({
       outputDir: tmpDir,
-      range: { type: "commit", hash: sha1 },
+      range: { type: "ref", ref: sha1 },
     });
-    const extractor = new Extractor(config, adapter);
+    const extractor = makeExtractor(config, adapter);
     await extractor.run();
 
-    const commits = await readJsonlFile(join(tmpDir, "repo-000001.jsonl"));
+    const commits = await readFirstJsonlFile(tmpDir);
     const oids = commits.map((c) => c.oid);
     expect(oids).not.toContain(sha1); // excluded
     expect(oids).toContain(sha2);
@@ -226,11 +312,11 @@ describe("Extractor", () => {
     const stateFilePath = join(tmpDir, "gitrail-state.json");
     const adapter = new IsomorphicGitAdapter(fs);
 
-    // First run
-    const config1 = makeConfig({ outputDir: tmpDir, stateFilePath });
-    await new Extractor(config1, adapter).run();
+    // First run — snapshot mode writes state file
+    const config1 = makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" });
+    await makeExtractor(config1, adapter).run();
 
-    const firstCommits = await readJsonlFile(join(tmpDir, "repo-000001.jsonl"));
+    const firstCommits = await readFirstJsonlFile(tmpDir);
     expect(firstCommits).toHaveLength(2);
 
     // Verify state file was written with absolute repositoryPath
@@ -241,23 +327,16 @@ describe("Extractor", () => {
     expect(stateFile.branches).toHaveLength(1);
     expect(stateFile.branches[0]!.name).toBe("main");
 
-    // Second run with same state — no new commits → output file should have 0 commits
+    // Second run in incremental mode with same state — no new commits → output file should have 0 commits
     const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
     await mkdir(tmpDir2, { recursive: true });
     try {
-      const config2 = makeConfig({ outputDir: tmpDir2, stateFilePath });
-      await new Extractor(config2, adapter).run();
+      const config2 = makeConfig({ outputDir: tmpDir2, stateFilePath, mode: "incremental" });
+      await makeExtractor(config2, adapter).run();
 
       // No commits to write — no output file created (writer.seq stays 0)
-      try {
-        await readFile(join(tmpDir2, "repo-000001.jsonl"), "utf8");
-        // If file exists, it should be empty
-        const commits = await readJsonlFile(join(tmpDir2, "repo-000001.jsonl"));
-        expect(commits).toHaveLength(0);
-      } catch (err) {
-        // File not created is also acceptable (writer never opened a file)
-        expect((err as NodeJS.ErrnoException).code).toBe("ENOENT");
-      }
+      const jsonlFiles = await findJsonlFiles(tmpDir2);
+      expect(jsonlFiles).toHaveLength(0);
     } finally {
       await rm(tmpDir2, { recursive: true, force: true });
     }
@@ -280,8 +359,8 @@ describe("Extractor", () => {
 
     const adapter = new IsomorphicGitAdapter(fs);
     // Config uses repositoryPath "/" (resolves to root), state says "/some/other/repo"
-    const config = makeConfig({ outputDir: tmpDir, stateFilePath });
-    const extractor = new Extractor(config, adapter);
+    const config = makeConfig({ outputDir: tmpDir, stateFilePath, mode: "incremental" });
+    const extractor = makeExtractor(config, adapter);
 
     await expect(extractor.run()).rejects.toThrow(
       "State file was created for a different repository: /some/other/repo",
@@ -297,7 +376,7 @@ describe("Extractor", () => {
 
     const adapter = new IsomorphicGitAdapter(fs);
     const config = makeConfig({ outputDir: tmpDir });
-    const extractor = new Extractor(config, adapter);
+    const extractor = makeExtractor(config, adapter);
     const result = await extractor.run();
 
     expect(result.commitsWritten).toBe(3);
@@ -316,7 +395,7 @@ describe("Extractor", () => {
 
     const adapter = new IsomorphicGitAdapter(fs);
     const config = makeConfig({ outputDir: tmpDir, rotation: { maxLines: 2 } });
-    const extractor = new Extractor(config, adapter);
+    const extractor = makeExtractor(config, adapter);
     const result = await extractor.run();
 
     expect(result.commitsWritten).toBe(3);
@@ -333,13 +412,16 @@ describe("Extractor", () => {
     const stateFilePath = join(tmpDir, "gitrail-state.json");
     const adapter = new IsomorphicGitAdapter(fs);
 
-    await new Extractor(makeConfig({ outputDir: tmpDir, stateFilePath }), adapter).run();
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
 
     const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
     await mkdir(tmpDir2, { recursive: true });
     try {
-      const result = await new Extractor(
-        makeConfig({ outputDir: tmpDir2, stateFilePath }),
+      const result = await makeExtractor(
+        makeConfig({ outputDir: tmpDir2, stateFilePath, mode: "incremental" }),
         adapter,
       ).run();
       expect(result.commitsWritten).toBe(0);
@@ -363,11 +445,12 @@ describe("Extractor", () => {
       outputDir: tmpDir,
       rotation: { maxLines: 2 },
     });
-    const extractor = new Extractor(config, adapter);
+    const extractor = makeExtractor(config, adapter);
     await extractor.run();
 
-    const file1 = await readJsonlFile(join(tmpDir, "repo-000001.jsonl"));
-    const file2 = await readJsonlFile(join(tmpDir, "repo-000002.jsonl"));
+    const [file1path, file2path] = await findJsonlFiles(tmpDir);
+    const file1 = await readJsonlFile(file1path!);
+    const file2 = await readJsonlFile(file2path!);
 
     expect(file1).toHaveLength(2);
     expect(file2).toHaveLength(1);
@@ -376,5 +459,391 @@ describe("Extractor", () => {
     const allOids = [...file1, ...file2].map((c) => c.oid);
     expect(allOids).toHaveLength(3);
     expect(new Set(allOids).size).toBe(3); // no duplicates
+  });
+
+  it("snapshot mode ignores state file content and performs full extraction", async () => {
+    const { fs, init, addCommit } = makeRepo("https://github.com/org/my-repo.git");
+    await init();
+
+    const sha1 = await addCommit("a.txt", "v1", "commit 1", 1000);
+    const sha2 = await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // First run (snapshot) — records state
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Second run in snapshot mode — state content is ignored, all commits extracted again
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({ outputDir: tmpDir2, stateFilePath, mode: "snapshot" }),
+        adapter,
+      ).run();
+
+      const commits = await readFirstJsonlFile(tmpDir2);
+      const oids = commits.map((c) => c.oid);
+      // Snapshot mode should return all commits regardless of state
+      expect(oids).toContain(sha1);
+      expect(oids).toContain(sha2);
+      expect(commits).toHaveLength(2);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
+  });
+
+  it("incremental mode reads state and performs differential extraction", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+
+    await addCommit("a.txt", "v1", "commit 1", 1000);
+    await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // First run (snapshot) — records state
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Add a new commit after the state was recorded
+    const sha3 = await addCommit("a.txt", "v3", "commit 3", 3000);
+
+    // Second run in incremental mode — should only get the new commit
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({ outputDir: tmpDir2, stateFilePath, mode: "incremental" }),
+        adapter,
+      ).run();
+
+      const commits = await readFirstJsonlFile(tmpDir2);
+      const oids = commits.map((c) => c.oid);
+      expect(oids).toContain(sha3);
+      expect(commits).toHaveLength(1);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
+  });
+
+  it("--on-missing-state snapshot: emits warning and performs full traversal when state file absent", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+
+    const sha1 = await addCommit("a.txt", "v1", "commit 1", 1000);
+    const sha2 = await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    const missingStatePath = join(tmpDir, "nonexistent-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+    const reporter = makeReporter();
+
+    const result = await makeExtractor(
+      makeConfig({
+        outputDir: tmpDir,
+        stateFilePath: missingStatePath,
+        mode: "incremental",
+        onMissingState: "snapshot",
+      }),
+      adapter,
+      { reporter },
+    ).run();
+
+    // All commits extracted (full traversal)
+    expect(result.commitsWritten).toBe(2);
+    const commits = await readFirstJsonlFile(tmpDir);
+    const oids = commits.map((c) => c.oid);
+    expect(oids).toContain(sha1);
+    expect(oids).toContain(sha2);
+
+    // Warning was emitted via reporter.warn
+    const warningMsg = reporter.warnings.find((w) => w.includes("State file not found"));
+    expect(warningMsg).toBeDefined();
+  });
+
+  it("reporter.warn: called when a branch does not exist in the repository", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    await addCommit("a.txt", "v1", "commit 1", 1000);
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    const reporter = makeReporter();
+
+    const result = await makeExtractor(
+      makeConfig({ outputDir: tmpDir, branches: ["main", "nonexistent-branch"] }),
+      adapter,
+      { reporter },
+    ).run();
+
+    // Only commits from main are extracted; the missing branch is skipped
+    expect(result.commitsWritten).toBe(1);
+    const warning = reporter.warnings.find((w) => w.includes("nonexistent-branch"));
+    expect(warning).toBeDefined();
+    expect(warning).toContain("no longer exists in the repository");
+  });
+
+  it("reporter.warn: called on COMMIT_NOT_FOUND fallback", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    const sha1 = await addCommit("a.txt", "v1", "commit 1", 1000);
+    await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    // Build an adapter that throws COMMIT_NOT_FOUND when excludeHash is provided
+    const realAdapter = new IsomorphicGitAdapter(fs);
+    const mockAdapter = {
+      resolveRef: realAdapter.resolveRef.bind(realAdapter),
+      getRemoteUrl: realAdapter.getRemoteUrl.bind(realAdapter),
+      async *walkCommits(repoPath: string, head: string, excludeHash?: string) {
+        if (excludeHash !== undefined) {
+          throw new GitAdapterError(`Commit not found: ${excludeHash}`, "COMMIT_NOT_FOUND");
+        }
+        yield* realAdapter.walkCommits(repoPath, head, undefined);
+      },
+    };
+
+    const reporter = makeReporter();
+
+    // Use a stale state entry so excludeHash is provided, triggering COMMIT_NOT_FOUND
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const fakeState: StateFile = {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      repositoryPath: "/",
+      branches: [{ name: "main", lastCommitHash: sha1 }],
+    };
+    await writeFile(stateFilePath, JSON.stringify(fakeState), "utf8");
+
+    const result = await new Extractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "incremental" }),
+      mockAdapter as unknown as IsomorphicGitAdapter,
+      reporter,
+      () => new Date(),
+      () => 0,
+      makeFileStateStore(stateFilePath),
+    ).run();
+
+    // Full fallback extraction ran — all commits written
+    expect(result.commitsWritten).toBe(2);
+    const warning = reporter.warnings.find((w) => w.includes("no longer exists"));
+    expect(warning).toBeDefined();
+    expect(warning).toContain("Falling back to full extraction");
+  });
+
+  it("reporter.done: always called in finally block after successful run", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    await addCommit("a.txt", "v1", "commit 1", 1000);
+    await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    const reporter = makeReporter();
+
+    await makeExtractor(makeConfig({ outputDir: tmpDir }), adapter, { reporter }).run();
+
+    expect(reporter.doneCalls).toHaveLength(1);
+    expect(reporter.doneCalls[0]).toBe(2);
+  });
+
+  it("isCommitHash guard: rejects invalid lastCommitHash in state file with a clear error", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    await addCommit("a.txt", "v1", "commit 1", 1000);
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    // Write a state file with a deliberately invalid hash to exercise the runtime guard
+    await writeFile(
+      stateFilePath,
+      JSON.stringify({
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        repositoryPath: resolve("/"),
+        branches: [{ name: "main", lastCommitHash: "not-a-hash" }],
+      }),
+      "utf8",
+    );
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    const config = makeConfig({ outputDir: tmpDir, stateFilePath, mode: "incremental" });
+    const extractor = makeExtractor(config, adapter);
+
+    await expect(extractor.run()).rejects.toThrow(
+      'Invalid commit hash in state file for branch "main"',
+    );
+  });
+
+  it("cross-run deduplication: new branch in incremental mode uses merge base as excludeHash", async () => {
+    // sha1 → sha2 (main, recorded in state)
+    //    ↓
+    //   shaA → shaB  (feature branch, forked from sha1)
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+
+    const sha1 = await addCommit("a.txt", "v1", "commit 1", 1000);
+    const sha2 = await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    // Feature branch: two commits forked from sha1
+    const featureTree = (await git.readCommit({ fs, dir: "/", oid: sha1 })).commit.tree;
+    const shaA = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: featureTree,
+        parent: [sha1],
+        message: "feature A\n",
+        author: { ...AUTHOR, timestamp: 3000 },
+        committer: { ...AUTHOR, timestamp: 3000 },
+      },
+    });
+    const shaB = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: featureTree,
+        parent: [shaA],
+        message: "feature B\n",
+        author: { ...AUTHOR, timestamp: 4000 },
+        committer: { ...AUTHOR, timestamp: 4000 },
+      },
+    });
+    await git.writeRef({ fs, dir: "/", ref: "refs/heads/feature", value: shaB });
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // Run 1: snapshot — records state with main only
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Run 2: incremental with main + feature (feature is new)
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({
+          outputDir: tmpDir2,
+          stateFilePath,
+          mode: "incremental",
+          branches: ["main", "feature"],
+        }),
+        adapter,
+      ).run();
+
+      const files = await findJsonlFiles(tmpDir2);
+      const allCommits = (await Promise.all(files.map(readJsonlFile))).flat();
+      const oids = allCommits.map((c) => c.oid);
+
+      // Feature-only commits above merge base should be present
+      expect(oids).toContain(shaA);
+      expect(oids).toContain(shaB);
+
+      // sha1 and sha2 were already extracted in run 1 and must NOT appear again
+      expect(oids).not.toContain(sha1);
+      expect(oids).not.toContain(sha2);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
+  });
+
+  it("cross-run deduplication: new branch with no common ancestor falls back to full traversal", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    await addCommit("a.txt", "v1", "main commit", 1000);
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // Run 1: snapshot — records state for main
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Create an orphan commit (no parent) — a fully detached history
+    const mainHead = await adapter.resolveRef("/", "main");
+    const mainTree = (await git.readCommit({ fs, dir: "/", oid: mainHead })).commit.tree;
+    const orphanSha = await git.writeCommit({
+      fs,
+      dir: "/",
+      commit: {
+        tree: mainTree,
+        parent: [],
+        message: "orphan commit\n",
+        author: { ...AUTHOR, timestamp: 2000 },
+        committer: { ...AUTHOR, timestamp: 2000 },
+      },
+    });
+    await git.writeRef({ fs, dir: "/", ref: "refs/heads/orphan", value: orphanSha });
+
+    // Run 2: incremental with main + orphan — no common ancestor, orphan gets full traversal
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({
+          outputDir: tmpDir2,
+          stateFilePath,
+          mode: "incremental",
+          branches: ["main", "orphan"],
+        }),
+        adapter,
+      ).run();
+
+      const files = await findJsonlFiles(tmpDir2);
+      const allCommits = (await Promise.all(files.map(readJsonlFile))).flat();
+      const oids = allCommits.map((c) => c.oid);
+
+      // Orphan commit should appear (full traversal for orphan branch)
+      expect(oids).toContain(orphanSha);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
+  });
+
+  it("cross-run deduplication: existing branches in incremental mode are unaffected by merge base logic", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+
+    await addCommit("a.txt", "v1", "commit 1", 1000);
+    await addCommit("a.txt", "v2", "commit 2", 2000);
+
+    const stateFilePath = join(tmpDir, "gitrail-state.json");
+    const adapter = new IsomorphicGitAdapter(fs);
+
+    // Run 1: snapshot — records state
+    await makeExtractor(
+      makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+      adapter,
+    ).run();
+
+    // Add a new commit to main
+    const sha3 = await addCommit("a.txt", "v3", "commit 3", 3000);
+
+    // Run 2: incremental with main only (no new branches added)
+    const tmpDir2 = join(tmpdir(), `gitrail-extractor-test-${randomUUID()}`);
+    await mkdir(tmpDir2, { recursive: true });
+    try {
+      await makeExtractor(
+        makeConfig({ outputDir: tmpDir2, stateFilePath, mode: "incremental" }),
+        adapter,
+      ).run();
+
+      const commits = await readFirstJsonlFile(tmpDir2);
+      const oids = commits.map((c) => c.oid);
+
+      // Only the new commit should appear — merge base logic doesn't affect existing branches
+      expect(oids).toContain(sha3);
+      expect(commits).toHaveLength(1);
+    } finally {
+      await rm(tmpDir2, { recursive: true, force: true });
+    }
   });
 });
