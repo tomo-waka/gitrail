@@ -54,14 +54,27 @@ function mapToOutputCommit(
 }
 
 export class Extractor {
+  private readonly config: ExtractorConfig;
+  private readonly adapter: GitAdapter;
+  private readonly reporter: Reporter;
+  private readonly wallNow: WallClock;
+  private readonly monotonicNow: MonotonicClock;
+  private readonly stateStore?: StateStore;
   constructor(
-    private readonly config: ExtractorConfig,
-    private readonly adapter: GitAdapter,
-    private readonly reporter: Reporter,
-    private readonly wallNow: WallClock,
-    private readonly monotonicNow: MonotonicClock,
-    private readonly stateStore?: StateStore,
-  ) {}
+    config: ExtractorConfig,
+    adapter: GitAdapter,
+    reporter: Reporter,
+    wallNow: WallClock,
+    monotonicNow: MonotonicClock,
+    stateStore?: StateStore,
+  ) {
+    this.config = config;
+    this.adapter = adapter;
+    this.reporter = reporter;
+    this.wallNow = wallNow;
+    this.monotonicNow = monotonicNow;
+    this.stateStore = stateStore;
+  }
 
   async run(): Promise<ExtractionResult> {
     const startTime = this.monotonicNow();

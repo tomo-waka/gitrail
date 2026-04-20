@@ -37,7 +37,10 @@ const noopReporter: Reporter = {
 };
 
 class NodeStateStore implements StateStore {
-  constructor(private readonly stateFilePath: string) {}
+  private readonly stateFilePath: string;
+  constructor(stateFilePath: string) {
+    this.stateFilePath = stateFilePath;
+  }
 
   async read(): Promise<StateFile | null> {
     const { readFile } = await import("node:fs/promises");

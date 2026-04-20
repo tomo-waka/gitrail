@@ -12,11 +12,14 @@ export class OutputWriter {
   private byteCount = 0;
   private totalBytesWritten = 0;
 
-  constructor(
-    private readonly outputDir: string,
-    private readonly filenameFor: (seq: number) => string,
-    private readonly rotation: RotationConfig,
-  ) {}
+  private readonly outputDir: string;
+  private readonly filenameFor: (seq: number) => string;
+  private readonly rotation: RotationConfig;
+  constructor(outputDir: string, filenameFor: (seq: number) => string, rotation: RotationConfig) {
+    this.outputDir = outputDir;
+    this.filenameFor = filenameFor;
+    this.rotation = rotation;
+  }
 
   get filesCreated(): number {
     return this.seq;

@@ -15,6 +15,7 @@
     "sourceMap": true,
 
     // Type Checking
+    "erasableSyntaxOnly": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,

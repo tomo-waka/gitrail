@@ -4,9 +4,9 @@ _Enable the `erasableSyntaxOnly` TypeScript compiler flag to statically prevent 
 
 ## Status
 
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
 
 ## Design References
 
