@@ -122,6 +122,24 @@ export class Extractor {
     return mergeBase ?? undefined;
   }
 
+  private buildExcludeHash(
+    branch: string,
+    stateMap: ReadonlyMap<string, CommitHash>,
+    newBranchExclude: CommitHash | undefined,
+  ): CommitHash | undefined {
+    if (this.config.range === undefined) {
+      return stateMap.get(branch) ?? newBranchExclude;
+    }
+    const range = this.config.range;
+    if (range.type === "ref") {
+      return range.ref;
+    } else if (range.type === "date") {
+      return undefined;
+    } else {
+      assertNever(range);
+    }
+  }
+
   async run(): Promise<ExtractionResult> {
     const startTime = this.monotonicNow();
     const repoPath = resolve(this.config.repositoryPath);
@@ -172,27 +190,7 @@ export class Extractor {
         }
         branchHeads.set(branch, head);
 
-        // Determine excludeHash for this branch
-        let excludeHash: CommitHash | undefined;
-        if (this.config.range === undefined) {
-          const lastHash = stateMap.get(branch);
-          if (lastHash !== undefined) {
-            excludeHash = lastHash;
-          } else if (newBranches.has(branch) && newBranchExcludeHash !== undefined) {
-            // New branch in incremental mode: use merge base of existing branches
-            // to avoid re-extracting commits already present in prior runs
-            excludeHash = newBranchExcludeHash;
-          }
-        } else {
-          const range = this.config.range;
-          if (range.type === "ref") {
-            excludeHash = range.ref;
-          } else if (range.type === "date") {
-            // no excludeHash; filtering handled per-commit below
-          } else {
-            assertNever(range);
-          }
-        }
+        const excludeHash = this.buildExcludeHash(branch, stateMap, newBranchExcludeHash);
 
         const writeCommit = async (commit: RawCommit) => {
           if (visited.has(commit.oid)) return;
