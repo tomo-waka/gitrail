@@ -76,14 +76,7 @@ export class Extractor {
     this.stateStore = stateStore;
   }
 
-  async run(): Promise<ExtractionResult> {
-    const startTime = this.monotonicNow();
-    const repoPath = resolve(this.config.repositoryPath);
-
-    const remoteUrl = await this.adapter.getRemoteUrl(repoPath);
-    const repoName = deriveRepoName(remoteUrl, repoPath);
-
-    // Read and validate state file — only in incremental mode
+  private async initializeStateMap(repoPath: string): Promise<Map<string, CommitHash>> {
     const stateMap = new Map<string, CommitHash>();
     if (this.stateStore && this.config.mode === "incremental") {
       const stateData = await this.stateStore.read();
@@ -114,6 +107,17 @@ export class Extractor {
         }
       }
     }
+    return stateMap;
+  }
+
+  async run(): Promise<ExtractionResult> {
+    const startTime = this.monotonicNow();
+    const repoPath = resolve(this.config.repositoryPath);
+
+    const remoteUrl = await this.adapter.getRemoteUrl(repoPath);
+    const repoName = deriveRepoName(remoteUrl, repoPath);
+
+    const stateMap = await this.initializeStateMap(repoPath);
 
     const sessionTs = this.wallNow();
     const tsStr = formatSessionTimestamp(sessionTs);
