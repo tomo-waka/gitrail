@@ -174,28 +174,6 @@ Record which branch(es) each commit was reachable from at extraction time (e.g. 
 
 ---
 
-#### Output: Commit file diff stats
-
-**Release target**: v0.3.0 (partial — `GitAdapter.getFileChanges()` adapter infrastructure only; `--include-files` CLI flag deferred beyond v0.3.0)
-
-- For each commit, include an array of changed files with `path`, `status`, `additions`, `deletions`
-- Made opt-in via `--include-files` flag (more expensive — requires tree comparison per commit)
-- Implementation: requires `isomorphic-git`'s `walk()` API with tree diff
-
-**Why `--include-files` is deferred**: Everything `--include-files` enables can already be achieved by running gitrail twice — once in `--output-mode commit` and once in `--output-mode file` — and joining the two outputs in the downstream analytical system. `--include-files` adds convenience (a single pass, a single denormalized record), but it does not add any new analytical capability beyond what the two-mode combination already provides. Given this, it is classified as a convenience feature and deferred to a release after `--output-mode file` is proven in practice.
-
----
-
-#### Output: File-level output mode
-
-**Release target**: v0.3.0
-
-- New mode where each output record represents a single changed **file** within a commit (rather than the commit itself)
-- Controlled by `--output-mode file` (default: `commit`)
-- Depends on commit file diff stats being implemented first
-
----
-
 #### Output: stdout support and stream-based OutputWriter
 
 Add `--output -` to write to stdout, enabling output to be piped into other tools directly.
@@ -222,58 +200,7 @@ At this point, `OutputWriter` should be redesigned around Node.js `Writable` str
 
 ## Development Environment Improvements
 
-### Near-term
-
-#### Preparation: Introduce `erasableSyntaxOnly` and refactor non-erasable syntax
-
-**Release target**: v0.3.0
-
-**Background and purpose**:
-
-The roadmap item "Migrate to Node.js built-in TypeScript support" (see Long-term section) requires that source code avoid TypeScript syntax that cannot be stripped at runtime — specifically syntax that has runtime semantics and cannot be removed by a simple type-erasing transform. The `erasableSyntaxOnly` compiler flag enforces this constraint statically.
-
-Introducing this flag well before the actual migration serves two purposes:
-
-1. **Prevent regression**: any future code addition that introduces non-erasable syntax (e.g. parameter properties, `const enum`, legacy decorators, `namespace`) will be caught by `tsc` and CI immediately, rather than discovered at migration time.
-2. **Prove readiness**: once the flag compiles cleanly, the codebase is structurally ready for `--strip-types`-based execution, independent of when the migration actually happens.
-
-**Work items**:
-
-- Add `"erasableSyntaxOnly": true` to `tsconfig.json`
-- Refactor all non-erasable syntax to comply. Based on the current codebase, the only known instance is the parameter property in `NodeStateStore` (`src/index.ts`); expand the field declaration explicitly
-
-**Why now**: The required refactoring is minimal (one site) and mechanically straightforward. The cost of introducing the flag early is low; the cost of discovering violations late — after more code has been written — grows over time.
-
----
-
 ### Medium-term
-
-#### Refactor: `Extractor.run()` decomposition and structural clarity
-
-**Release target**: v0.3.0
-
-`Extractor.run()` has grown incrementally as features were added across releases. The method currently handles five distinct concerns in sequence: session initialization, state file reading and validation, merge-base computation for new branches, per-branch traversal with fallback, and state file writing. Each concern is currently expressed as a flat block of imperative code within a single method body.
-
-**Goals**:
-
-- Extract each concern into a focused private method (e.g. `initializeStateMap()`, `computeNewBranchExclude()`, `processBranch()`, `buildExcludeHash()`)
-- Reduce the cognitive load of `run()` to orchestration only: calling helpers in sequence, managing the writer lifetime, and propagating results
-- Make future feature additions localized: a change to state-reading logic should touch only the state-reading helper, not the entire method
-
-**On the "declarative" direction**:
-
-Per-branch processing is naturally expressed as a `for...of` loop over `config.branches`. The architecture specification requires sequential, non-interleaved output (all commits from branch N before branch N+1 begins). Converting this to an `async forEach` or `Promise.all` pattern would risk violating this ordering guarantee and is explicitly out of scope. The intended "declarative" improvement is to extract the loop body into a named `processBranch(branch, context)` function — making the per-branch unit independently readable and testable — while keeping the loop itself as a sequential `for...of`.
-
-**Candidate private method boundaries** (to be refined at implementation time):
-
-- `initializeStateMap(): Promise<Map<string, CommitHash>>` — reads, validates, and populates the state map
-- `computeNewBranchExclude(newBranches: Set<string>, stateMap: Map<string, CommitHash>): Promise<CommitHash | undefined>` — merge-base computation for cross-run deduplication
-- `buildExcludeHash(branch: string, stateMap: Map, newBranchExclude: CommitHash | undefined): CommitHash | undefined` — `excludeHash` selection logic per branch
-- `processBranch(branch, context): Promise<void>` — ref resolution, commit walk, fallback, and write loop for a single branch
-
----
-
-### Long-term
 
 #### Migrate to Node.js built-in TypeScript support
 

@@ -54,9 +54,9 @@ _Update all human-oriented documentation to reflect the complete set of changes 
 
 #### Status
 
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
 
 #### Mandatory Files
 
@@ -100,15 +100,15 @@ For each file, check against the actual implementation for: renamed CLI options,
 
 (to be filled when all phases are complete — run after all Development Phases and Release Tasks are marked complete)
 
-- [ ] `npm run build` passes with no errors
-- [ ] `npm test` passes with no failures
-- [ ] `npm run format:check` passes
-- [ ] `--output-mode file` produces valid JSONL with one record per changed file
-- [ ] `--output-mode commit` (default) is identical to pre-v0.3.0 behavior
-- [ ] Incremental extraction works correctly with `--output-mode file`
-- [ ] File rotation (`--rotate-lines`) works correctly in file mode
-- [ ] Binary files produce `additions: null, deletions: null`
-- [ ] Root commits produce `"added"` entries for all files
-- [ ] Empty commits produce no output records in file mode
-- [ ] `CHANGELOG.md` has a `[0.3.0]` entry
-- [ ] All roadmap entries with `Release target: v0.3.0` have been removed from `roadmap.md`
+- [x] `npm run build` passes with no errors
+- [x] `npm test` passes with no failures
+- [x] `npm run format:check` passes
+- [x] `--output-mode file` produces valid JSONL with one record per changed file
+- [x] `--output-mode commit` (default) is identical to pre-v0.3.0 behavior
+- [x] Incremental extraction works correctly with `--output-mode file`
+- [x] File rotation (`--rotate-lines`) works correctly in file mode
+- [x] Binary files produce `additions: null, deletions: null`
+- [x] Root commits produce `"added"` entries for all files
+- [x] Empty commits produce no output records in file mode
+- [x] `CHANGELOG.md` has a `[0.3.0]` entry
+- [x] All roadmap entries with `Release target: v0.3.0` have been removed from `roadmap.md`

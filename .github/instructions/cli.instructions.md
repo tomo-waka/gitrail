@@ -55,10 +55,11 @@ These parameters are only valid in snapshot mode. They are mutually exclusive wi
 
 ### Output
 
-| Parameter                  | Alias | Type   | Default                    | Description                                           |
-| -------------------------- | ----- | ------ | -------------------------- | ----------------------------------------------------- |
-| `--output-dir <path>`      | `-o`  | string | `./`                       | Directory to write output `.jsonl` files. Must exist. |
-| `--output-prefix <string>` |       | string | derived from remote origin | Filename prefix for output files                      |
+| Parameter                  | Alias | Type             | Default                    | Description                                                                                                                   |
+| -------------------------- | ----- | ---------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `--output-dir <path>`      | `-o`  | string           | `./`                       | Directory to write output `.jsonl` files. Must exist.                                                                         |
+| `--output-prefix <string>` |       | string           | derived from remote origin | Filename prefix for output files                                                                                              |
+| `--output-mode <mode>`     |       | `commit \| file` | `commit`                   | Output record granularity. `commit` emits one record per commit; `file` emits one record per changed file within each commit. |
 
 **`--output-prefix` derivation logic** (when not specified):
 

@@ -78,6 +78,7 @@ interface ExtractorConfig {
   outputDir: string;
   outputPrefix: string;
   rotation: RotationConfig;
+  outputMode: "commit" | "file";
   range?: ExtractionRange;
   stateFilePath?: string;
 }
@@ -157,10 +158,10 @@ The concrete implementation of `GitAdapter` using isomorphic-git.
 
 ### Output Layer (`src/output/`)
 
-- Serialize `OutputCommit` objects to JSON Lines
+- Serialize `OutputRecord` objects (`OutputCommit | OutputFileRecord`) to JSON Lines
 - Track current file's line count and byte size
 - Rotate to a new file when thresholds are exceeded
-- Generate output filenames: `{prefix}-{sequenceNumber padded to 6 digits}.jsonl`
+- Generate output filenames: `{prefix}-{timestamp}-{sequenceNumber padded to 6 digits}.jsonl`
 - Use `\n` (LF) as line endings — never `\r\n`
 
 ---
