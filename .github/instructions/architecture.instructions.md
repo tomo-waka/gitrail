@@ -78,6 +78,7 @@ interface ExtractorConfig {
   outputDir: string;
   outputPrefix: string;
   rotation: RotationConfig;
+  outputMode: "commit" | "file";
   range?: ExtractionRange;
   stateFilePath?: string;
 }
@@ -104,6 +105,19 @@ interface GitAdapter {
 
   /** Return the remote URL for `origin`, or null if not set */
   getRemoteUrl(repoPath: string): Promise<string | null>;
+
+  /** Return per-file change info between `commitOid` and `parentOid`.
+   *  If `parentOid` is omitted (root commit), all files in the commit tree are "added".
+   *  Binary files have `additions: null` and `deletions: null`. */
+  getFileChanges(
+    repoPath: string,
+    commitOid: string,
+    parentOid?: string,
+  ): Promise<readonly FileChange[]>;
+
+  /** Find the common ancestor (merge base) commit hash among all provided commit hashes.
+   *  Returns null if no common ancestor exists (e.g. orphan branches). */
+  findMergeBase(repoPath: string, commitHashes: string[]): Promise<string | null>;
 }
 
 interface RawCommit {
@@ -123,24 +137,31 @@ interface RawCommit {
   };
   parents: string[];
 }
+
+interface FileChange {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  additions: number | null; // null for binary files
+  deletions: number | null; // null for binary files
+}
 ```
 
 ### isomorphic-git Adapter (`src/git/isomorphic-git-adapter.ts`)
 
 The concrete implementation of `GitAdapter` using isomorphic-git.
 
-- Uses `isomorphic-git`'s `readCommit()` (BFS traversal), `resolveRef()`, and `getConfig()` APIs
-- Does **not** use isomorphic-git's `log()` or `walk()` APIs; BFS is implemented manually using `readCommit()` in a queue loop
+- Uses `isomorphic-git`'s `readCommit()` (BFS traversal), `resolveRef()`, `getConfig()`, and `walk()` + `TREE()` (file diff) APIs
+- Does **not** use isomorphic-git's `log()` API; BFS is implemented manually using `readCommit()` in a queue loop
 - Implements commit exclusion via reachability pre-computation (see `git-traversal.instructions.md`)
 - Must not leak isomorphic-git types outside this file
 - Accepts an optional `FsClient` in its constructor for dependency injection (defaults to `node:fs`)
 
 ### Output Layer (`src/output/`)
 
-- Serialize `OutputCommit` objects to JSON Lines
+- Serialize `OutputRecord` objects (`OutputCommit | OutputFileRecord`) to JSON Lines
 - Track current file's line count and byte size
 - Rotate to a new file when thresholds are exceeded
-- Generate output filenames: `{prefix}-{sequenceNumber padded to 6 digits}.jsonl`
+- Generate output filenames: `{prefix}-{timestamp}-{sequenceNumber padded to 6 digits}.jsonl`
 - Use `\n` (LF) as line endings — never `\r\n`
 
 ---

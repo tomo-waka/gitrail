@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-20
+
+### Added
+
+- `--output-mode commit|file` flag (default `commit`). In `file` mode, each output record represents one changed file within a commit, carrying full commit metadata (denormalized) plus a `file` object with `path`, `status` (`"added"`, `"modified"`, or `"deleted"`), `additions`, and `deletions`. Binary files produce `additions: null` and `deletions: null`. Empty commits produce no output records.
+- `diff` npm package added as a runtime dependency (BSD-3-Clause), used for per-file line-level diff statistics in `--output-mode file`.
+
+### Changed
+
+- Progress output now reads "Processed N records…" (previously "Processed N commits…"). In commit mode the count is equivalent; in file mode, N reflects the number of file-level records written.
+- Summary output now shows "Records written :" (previously "Commits written :").
+- `ExtractionResult.commitsWritten` renamed to `recordsWritten` (internal TypeScript type only; not serialized to any output file). Affects only callers that import and inspect this type programmatically.
+- `erasableSyntaxOnly: true` added to `tsconfig.json`. Compile-time constraint only; no runtime effect.
+
+---
+
 ## [0.2.0] - 2026-04-17
 
 ### Added

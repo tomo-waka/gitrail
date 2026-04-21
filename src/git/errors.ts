@@ -7,12 +7,12 @@ export type GitAdapterErrorCode =
   | "UNKNOWN";
 
 export class GitAdapterError extends Error {
-  constructor(
-    message: string,
-    public readonly code: GitAdapterErrorCode,
-    public override readonly cause?: unknown,
-  ) {
+  public readonly code: GitAdapterErrorCode;
+  public override readonly cause?: unknown;
+  constructor(message: string, code: GitAdapterErrorCode, cause?: unknown) {
     super(message);
     this.name = "GitAdapterError";
+    this.code = code;
+    this.cause = cause;
   }
 }
