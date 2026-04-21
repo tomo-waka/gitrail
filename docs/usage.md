@@ -314,12 +314,13 @@ gitrail [options] <repository-path>
 
 ### Output
 
-| Parameter                  | Alias | Type   | Default | Description                                             |
-| -------------------------- | ----- | ------ | ------- | ------------------------------------------------------- |
-| `--output-dir <path>`      | `-o`  | string | `./`    | Directory for output `.jsonl` files. Must exist.        |
-| `--output-prefix <string>` |       | string | derived | Filename prefix (derived from remote origin if omitted) |
-| `--rotate-lines <n>`       |       | number | —       | Start new file after `n` lines                          |
-| `--rotate-size <bytes>`    |       | number | —       | Start new file after `n` bytes                          |
+| Parameter                  | Alias | Type             | Default  | Description                                             |
+| -------------------------- | ----- | ---------------- | -------- | ------------------------------------------------------- |
+| `--output-dir <path>`      | `-o`  | string           | `./`     | Directory for output `.jsonl` files. Must exist.        |
+| `--output-prefix <string>` |       | string           | derived  | Filename prefix (derived from remote origin if omitted) |
+| `--output-mode <mode>`     |       | `commit \| file` | `commit` | Output record granularity (see below)                   |
+| `--rotate-lines <n>`       |       | number           | —        | Start new file after `n` lines                          |
+| `--rotate-size <bytes>`    |       | number           | —        | Start new file after `n` bytes                          |
 
 ### Control
 
@@ -344,3 +345,61 @@ gitrail [options] <repository-path>
 | `0`  | Success                                            |
 | `1`  | User error (invalid arguments, validation failure) |
 | `2`  | Runtime error (I/O failure, unexpected Git error)  |
+
+---
+
+## File-Level Output Mode
+
+By default, `--output-mode commit` (the default), each output record represents one commit.
+
+With `--output-mode file`, each record represents one changed **file** within a commit, with commit metadata denormalized onto every record. This enables file-granularity analytics without a join: each row is self-contained.
+
+```bash
+gitrail -b main --output-mode file ./my-repo
+```
+
+### Output record shape (file mode)
+
+Every record extends the commit-mode schema with a `file` object:
+
+```json
+{
+  "oid": "a1b2c3d4...",
+  "subject": "Fix null pointer in auth module",
+  "body": "",
+  "author": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "timestamp": "2024-01-15T09:00:00+09:00"
+  },
+  "committer": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "timestamp": "2024-01-15T09:05:00+09:00"
+  },
+  "parents": ["parenthash1"],
+  "repository": { "name": "my-repo", "url": "https://github.com/org/my-repo" },
+  "file": {
+    "path": "src/auth/handler.ts",
+    "status": "modified",
+    "additions": 5,
+    "deletions": 2
+  }
+}
+```
+
+| Field            | Type                                 | Notes                                             |
+| ---------------- | ------------------------------------ | ------------------------------------------------- |
+| `file.path`      | string                               | Relative path from repository root, `/`-separated |
+| `file.status`    | `"added" \| "modified" \| "deleted"` | Rename detection is not performed                 |
+| `file.additions` | number \| null                       | Lines added; `null` for binary files              |
+| `file.deletions` | number \| null                       | Lines deleted; `null` for binary files            |
+
+### Behavior notes
+
+- **Empty commits** (no changed files) produce **no output records** in file mode.
+- **Merge commits** diff against the first parent only.
+- **Binary files** produce `"additions": null, "deletions": null`.
+- **Root commits** (no parent) treat all files as `"added"`.
+- **File rotation** (`--rotate-lines`, `--rotate-size`) applies per record; a single commit's file records may span rotation boundaries.
+- Progress output reflects the number of file-level records written, not the number of commits processed.

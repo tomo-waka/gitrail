@@ -51,6 +51,7 @@ gitrail [options] <repository-path>
 | `--on-missing-state`       |       | `error \| snapshot`       |          | `error`    | Behavior when state file is absent. Only valid with `--mode incremental`.                                       |
 | `--since-ref <ref>`        |       | string                    |          | —          | Exclude commits reachable from this ref (tag, branch, or hash). Snapshot mode only.                             |
 | `--since-date <ISO8601>`   |       | string                    |          | —          | Include only commits after this datetime. Snapshot mode only.                                                   |
+| `--output-mode <mode>`     |       | `commit \| file`          |          | `commit`   | Output record granularity. `commit` emits one record per commit; `file` emits one record per changed file.      |
 | `--rotate-lines <n>`       |       | number                    |          | —          | Start new file after `n` lines                                                                                  |
 | `--rotate-size <bytes>`    |       | number                    |          | —          | Start new file after `n` bytes                                                                                  |
 | `--quiet`                  | `-q`  | boolean                   |          | `false`    | Suppress progress and summary output                                                                            |
@@ -61,7 +62,9 @@ Validation errors exit with code `1`; runtime errors with code `2`. See the
 
 ## Output
 
-Each line in the output `.jsonl` file is a JSON object representing one commit:
+In the default `--output-mode commit`, each line in the output `.jsonl` file is a JSON object representing one commit. With `--output-mode file`, each line represents one changed file within a commit, with full commit metadata denormalized onto each record plus a `file` object containing `path`, `status`, `additions`, and `deletions`.
+
+Commit-mode record example:
 
 ```json
 {

@@ -213,6 +213,74 @@ Byte counting: uses `Buffer.byteLength(line, "utf8")` — counts encoded bytes, 
 
 JSONL line order reflects BFS traversal order across the Git DAG, not chronological commit order. Downstream consumers that need chronological ordering must sort by `committer.timestamp`.
 
+---
+
+## File-Level Output Schema
+
+When `--output-mode file` is used, each output line represents one changed file within a commit. Commits with multiple changed files produce multiple lines. Empty commits (no file changes) produce no lines.
+
+Each line carries all commit fields from `OutputCommit` (denormalized) plus a `file` object:
+
+```typescript
+interface OutputFileRecord extends OutputCommit {
+  file: {
+    path: string;
+    status: "added" | "modified" | "deleted";
+    additions: number | null; // null for binary files
+    deletions: number | null; // null for binary files
+  };
+}
+```
+
+### `file.path`
+
+Relative path from the repository root. Uses `/` as the separator regardless of OS.
+
+### `file.status`
+
+- `"added"`: file exists in this commit but not in the parent
+- `"modified"`: file exists in both commits with different content
+- `"deleted"`: file exists in the parent but not in this commit
+
+Rename detection is not performed. A renamed file appears as a `"deleted"` entry for the old path and an `"added"` entry for the new path.
+
+### `file.additions` / `file.deletions`
+
+Line-level diff statistics computed using the `diff` package. `null` when the file is binary (contains NUL bytes in the first 8000 bytes).
+
+For `"added"` files: `deletions` is `0`, `additions` is the total line count.
+For `"deleted"` files: `additions` is `0`, `deletions` is the total line count.
+
+### Merge commits
+
+Changes are computed against the **first parent only**.
+
+### Example file-mode record
+
+```json
+{
+  "oid": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+  "subject": "Fix null pointer in auth module",
+  "body": "",
+  "author": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "timestamp": "2024-01-15T09:00:00+09:00"
+  },
+  "committer": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "timestamp": "2024-01-15T09:05:00+09:00"
+  },
+  "parents": ["b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"],
+  "repository": {
+    "name": "my-repo",
+    "url": "https://github.com/org/my-repo"
+  },
+  "file": { "path": "src/auth/handler.ts", "status": "modified", "additions": 5, "deletions": 2 }
+}
+```
+
 ## References
 
 - `.github/instructions/schema.instructions.md`

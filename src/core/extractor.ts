@@ -1,9 +1,9 @@
 import { basename, resolve } from "node:path";
 
-import type { GitAdapter, RawCommit } from "../git/index.js";
+import type { FileChange, GitAdapter, RawCommit } from "../git/index.js";
 import { GitAdapterError } from "../git/index.js";
 import { OutputWriter, formatSessionTimestamp, splitMessage, toISO8601 } from "../output/index.js";
-import type { OutputCommit } from "../output/index.js";
+import type { OutputCommit, OutputFileRecord } from "../output/index.js";
 import type {
   CommitHash,
   ExtractorConfig,
@@ -53,24 +53,59 @@ function mapToOutputCommit(
   };
 }
 
+function mapToOutputFileRecord(
+  commit: RawCommit,
+  fileChange: FileChange,
+  repoName: string,
+  remoteUrl: string | null,
+): OutputFileRecord {
+  return {
+    ...mapToOutputCommit(commit, repoName, remoteUrl),
+    file: {
+      path: fileChange.path,
+      status: fileChange.status,
+      additions: fileChange.additions,
+      deletions: fileChange.deletions,
+    },
+  };
+}
+
+interface BranchRunContext {
+  readonly repoPath: string;
+  readonly repoName: string;
+  readonly remoteUrl: string | null;
+  readonly stateMap: ReadonlyMap<string, CommitHash>;
+  readonly newBranchExclude: CommitHash | undefined;
+  readonly writer: OutputWriter;
+  readonly visited: Set<string>;
+  readonly recordsRef: { count: number };
+  readonly branchHeads: Map<string, CommitHash>;
+}
+
 export class Extractor {
+  private readonly config: ExtractorConfig;
+  private readonly adapter: GitAdapter;
+  private readonly reporter: Reporter;
+  private readonly wallNow: WallClock;
+  private readonly monotonicNow: MonotonicClock;
+  private readonly stateStore?: StateStore;
   constructor(
-    private readonly config: ExtractorConfig,
-    private readonly adapter: GitAdapter,
-    private readonly reporter: Reporter,
-    private readonly wallNow: WallClock,
-    private readonly monotonicNow: MonotonicClock,
-    private readonly stateStore?: StateStore,
-  ) {}
+    config: ExtractorConfig,
+    adapter: GitAdapter,
+    reporter: Reporter,
+    wallNow: WallClock,
+    monotonicNow: MonotonicClock,
+    stateStore?: StateStore,
+  ) {
+    this.config = config;
+    this.adapter = adapter;
+    this.reporter = reporter;
+    this.wallNow = wallNow;
+    this.monotonicNow = monotonicNow;
+    this.stateStore = stateStore;
+  }
 
-  async run(): Promise<ExtractionResult> {
-    const startTime = this.monotonicNow();
-    const repoPath = resolve(this.config.repositoryPath);
-
-    const remoteUrl = await this.adapter.getRemoteUrl(repoPath);
-    const repoName = deriveRepoName(remoteUrl, repoPath);
-
-    // Read and validate state file — only in incremental mode
+  private async initializeStateMap(repoPath: string): Promise<Map<string, CommitHash>> {
     const stateMap = new Map<string, CommitHash>();
     if (this.stateStore && this.config.mode === "incremental") {
       const stateData = await this.stateStore.read();
@@ -101,6 +136,107 @@ export class Extractor {
         }
       }
     }
+    return stateMap;
+  }
+
+  private async computeNewBranchExclude(
+    newBranches: ReadonlySet<string>,
+    stateMap: ReadonlyMap<string, CommitHash>,
+    repoPath: string,
+  ): Promise<CommitHash | undefined> {
+    if (newBranches.size === 0 || stateMap.size === 0) {
+      return undefined;
+    }
+    const mergeBase = await this.adapter.findMergeBase(repoPath, Array.from(stateMap.values()));
+    return mergeBase ?? undefined;
+  }
+
+  private resolveExcludeHash(
+    branch: string,
+    stateMap: ReadonlyMap<string, CommitHash>,
+    newBranchExclude: CommitHash | undefined,
+  ): CommitHash | undefined {
+    if (this.config.range === undefined) {
+      return stateMap.get(branch) ?? newBranchExclude;
+    }
+    const range = this.config.range;
+    if (range.type === "ref") {
+      return range.ref;
+    } else if (range.type === "date") {
+      return undefined;
+    } else {
+      assertNever(range);
+    }
+  }
+
+  private async processBranch(branch: string, ctx: BranchRunContext): Promise<void> {
+    let head: CommitHash;
+    try {
+      head = await this.adapter.resolveRef(ctx.repoPath, branch);
+    } catch (err) {
+      if (err instanceof GitAdapterError && err.code === "REF_NOT_FOUND") {
+        this.reporter.warn(
+          `Warning: Branch "${branch}" no longer exists in the repository. Skipping.`,
+        );
+        return;
+      }
+      throw err;
+    }
+    ctx.branchHeads.set(branch, head);
+
+    const excludeHash = this.resolveExcludeHash(branch, ctx.stateMap, ctx.newBranchExclude);
+
+    const writeCommit = async (commit: RawCommit) => {
+      if (ctx.visited.has(commit.oid)) return;
+      ctx.visited.add(commit.oid);
+      if (this.config.range?.type === "date") {
+        if (commit.committer.timestamp * 1000 <= this.config.range.since.getTime()) {
+          return;
+        }
+      }
+      if (this.config.outputMode === "commit") {
+        await ctx.writer.write(mapToOutputCommit(commit, ctx.repoName, ctx.remoteUrl));
+        ctx.recordsRef.count++;
+        this.reporter.progress(ctx.recordsRef.count);
+      } else {
+        const parentOid = commit.parents[0] as CommitHash | undefined;
+        const fileChanges = await this.adapter.getFileChanges(ctx.repoPath, commit.oid, parentOid);
+        for (const fileChange of fileChanges) {
+          await ctx.writer.write(
+            mapToOutputFileRecord(commit, fileChange, ctx.repoName, ctx.remoteUrl),
+          );
+          ctx.recordsRef.count++;
+          this.reporter.progress(ctx.recordsRef.count);
+        }
+      }
+    };
+
+    try {
+      for await (const commit of this.adapter.walkCommits(ctx.repoPath, head, excludeHash)) {
+        await writeCommit(commit);
+      }
+    } catch (err) {
+      if (err instanceof GitAdapterError && err.code === "COMMIT_NOT_FOUND") {
+        this.reporter.warn(
+          `Warning: Last commit hash for branch "${branch}" no longer exists. Falling back to full extraction.`,
+        );
+        for await (const commit of this.adapter.walkCommits(ctx.repoPath, head)) {
+          await writeCommit(commit);
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  async run(): Promise<ExtractionResult> {
+    const startTime = this.monotonicNow();
+    const repoPath = resolve(this.config.repositoryPath);
+
+    const remoteUrl = await this.adapter.getRemoteUrl(repoPath);
+    const repoName = deriveRepoName(remoteUrl, repoPath);
+
+    const stateMap = await this.initializeStateMap(repoPath);
 
     const sessionTs = this.wallNow();
     const tsStr = formatSessionTimestamp(sessionTs);
@@ -119,88 +255,34 @@ export class Extractor {
 
     const branchHeads = new Map<string, CommitHash>();
     const visited = new Set<string>();
-    let commitsWritten = 0;
+    const recordsRef = { count: 0 };
 
     try {
       // In incremental mode, compute merge base of existing branches to use as
       // excludeHash for newly added branches, preventing cross-run duplicates
-      let newBranchExcludeHash: CommitHash | undefined;
-      if (newBranches.size > 0 && stateMap.size > 0) {
-        const mergeBase = await this.adapter.findMergeBase(repoPath, Array.from(stateMap.values()));
-        if (mergeBase !== null) {
-          newBranchExcludeHash = mergeBase;
-        }
-      }
+      const newBranchExcludeHash = await this.computeNewBranchExclude(
+        newBranches,
+        stateMap,
+        repoPath,
+      );
+
+      const ctx: BranchRunContext = {
+        repoPath,
+        repoName,
+        remoteUrl,
+        stateMap,
+        newBranchExclude: newBranchExcludeHash,
+        writer,
+        visited,
+        recordsRef,
+        branchHeads,
+      };
 
       for (const branch of this.config.branches) {
-        let head: CommitHash;
-        try {
-          head = await this.adapter.resolveRef(repoPath, branch);
-        } catch (err) {
-          if (err instanceof GitAdapterError && err.code === "REF_NOT_FOUND") {
-            this.reporter.warn(
-              `Warning: Branch "${branch}" no longer exists in the repository. Skipping.`,
-            );
-            continue;
-          }
-          throw err;
-        }
-        branchHeads.set(branch, head);
-
-        // Determine excludeHash for this branch
-        let excludeHash: CommitHash | undefined;
-        if (this.config.range === undefined) {
-          const lastHash = stateMap.get(branch);
-          if (lastHash !== undefined) {
-            excludeHash = lastHash;
-          } else if (newBranches.has(branch) && newBranchExcludeHash !== undefined) {
-            // New branch in incremental mode: use merge base of existing branches
-            // to avoid re-extracting commits already present in prior runs
-            excludeHash = newBranchExcludeHash;
-          }
-        } else {
-          const range = this.config.range;
-          if (range.type === "ref") {
-            excludeHash = range.ref;
-          } else if (range.type === "date") {
-            // no excludeHash; filtering handled per-commit below
-          } else {
-            assertNever(range);
-          }
-        }
-
-        const writeCommit = async (commit: RawCommit) => {
-          if (visited.has(commit.oid)) return;
-          visited.add(commit.oid);
-          if (this.config.range?.type === "date") {
-            if (commit.committer.timestamp * 1000 <= this.config.range.since.getTime()) {
-              return;
-            }
-          }
-          await writer.write(mapToOutputCommit(commit, repoName, remoteUrl));
-          commitsWritten++;
-          this.reporter.progress(commitsWritten);
-        };
-
-        try {
-          for await (const commit of this.adapter.walkCommits(repoPath, head, excludeHash)) {
-            await writeCommit(commit);
-          }
-        } catch (err) {
-          if (err instanceof GitAdapterError && err.code === "COMMIT_NOT_FOUND") {
-            this.reporter.warn(
-              `Warning: Last commit hash for branch "${branch}" no longer exists. Falling back to full extraction.`,
-            );
-            for await (const commit of this.adapter.walkCommits(repoPath, head)) {
-              await writeCommit(commit);
-            }
-          } else {
-            throw err;
-          }
-        }
+        await this.processBranch(branch, ctx);
       }
     } finally {
-      this.reporter.done(commitsWritten);
+      this.reporter.done(recordsRef.count);
       await writer.close();
     }
 
@@ -219,7 +301,7 @@ export class Extractor {
     }
 
     return {
-      commitsWritten,
+      recordsWritten: recordsRef.count,
       filesCreated: writer.filesCreated,
       bytesWritten: writer.bytesWritten,
       elapsedMs: this.monotonicNow() - startTime,

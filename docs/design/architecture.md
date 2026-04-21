@@ -21,8 +21,12 @@ gitrail is an ETL bridge between Git repositories and analytical systems (data w
 tools, metrics pipelines). It converts Git's graph-structured commit history into a flat,
 streaming-friendly format that analytical systems can ingest without understanding Git internals.
 
-Git history is a rich source of engineering data. Two broad analytical dimensions motivate its
-extraction:
+The analytical value gitrail targets is **aggregation**: grouping and counting commit events
+across dimensions such as author, time period, or changed file area. This kind of analysis
+requires loading the full history into a queryable system and cannot be done efficiently with
+standard git tooling.
+
+Two broad categories of aggregation motivate extraction:
 
 - **People dimension**: developer activity patterns, authorship, commit frequency, team velocity,
   review and collaboration signals.
@@ -31,6 +35,27 @@ extraction:
 
 gitrail's responsibility is faithful extraction. Interpretation — deriving metrics, aggregations,
 or insights from the data — belongs to the downstream system.
+
+A useful design lens for output schema decisions: fields act as either **aggregation axes**
+(dimensions — who, when, what area) or **quantitative targets** (measures — how many, how much).
+A finer-grained axis is analytically useful only when the data also carries a measure that varies
+meaningfully at that granularity.
+
+Core output grains should therefore prefer entities that are both Git-native and analytically
+stable across repositories and tooling choices. Finer-grained structures derived from diff
+presentation may still be useful, but they are usually better treated as derived signals or
+pipeline enrichments than as default first-class output records unless they establish a reusable
+axis/measure pair with broad value.
+
+This separation is also an extensibility principle: gitrail's core should expose canonical Git
+facts, while organization-specific interpretation or enrichment should be attachable at the
+pipeline boundary rather than embedded into the core extraction model.
+
+### What gitrail is not for
+
+Individual history inspection — "what commits touched this file?", "who last changed this
+line?" — is handled well by git clients and IDEs. If an analysis can be answered efficiently
+with `git log` or a standard git GUI, it is not a target use case for gitrail.
 
 ### When incremental extraction matters
 

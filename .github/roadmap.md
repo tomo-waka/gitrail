@@ -28,6 +28,57 @@ This keeps the roadmap stable for both humans and LLMs while still making releas
 
 ### Near-term
 
+#### CLI UX: Parameter model redesign for extraction and output grain
+
+The current CLI parameter system mixes multiple conceptual axes in a way that is technically
+usable but not clean from a user-experience perspective. In particular, the combination of
+`--mode snapshot|incremental`, `--output-mode commit|file`, and `--on-missing-state` exposes an
+inconsistent parameter model: one axis is expressed as a generic `mode`, another as a prefixed
+`output-mode`, and the fallback behavior is named relative to the current implementation rather
+than the underlying extraction model.
+
+This should be treated as a **UX-level design bug**, not as a cosmetic naming issue. The problem
+is not limited to `--output-mode`; the full parameter system around extraction intent, output
+grain, and missing-state fallback should be redesigned together.
+
+**Decision taken from design discussion**:
+
+- replace `--mode snapshot|incremental` with boolean `--incremental`
+- replace `--output-mode commit|file` with boolean `--per-file`
+- replace `--on-missing-state error|snapshot` with `--missing-state=error|snapshot`
+- keep `snapshot` as an execution-model term in documentation and fallback semantics, but remove
+  it as a top-level CLI value
+
+**Resulting parameter model**:
+
+- default behavior: snapshot extraction
+- `--incremental`: extract only commits newer than the last recorded state
+- `--state <path>`: required with `--incremental`; without `--incremental`, acts as a write-only
+  recording path on successful snapshot extraction
+- `--missing-state=error|snapshot`: valid only with `--incremental`
+- `--per-file`: emit one record per changed file; without it, emit one record per commit
+
+**Important design rationale**:
+
+- `--incremental` expresses user intent directly and removes the overly abstract `mode` parameter
+- snapshot remains an important concept in gitrail because it communicates independent extraction
+  from a mutable DAG-backed repository state; this meaning should remain in docs and behavior even
+  if it is no longer exposed as a CLI enum value
+- the core output grain should be treated as `commit|file`; finer-grained interpretation should be
+  handled later, if needed, through enrichment or pipeline extensions rather than by expanding the
+  default CLI grain model
+- `--missing-state=error|snapshot` is preferred over alternatives such as `ignore` or `full`
+  because it names the actual fallback behavior precisely
+
+**Detailed design expectations**:
+
+- treat this parameter model as the baseline for the detailed design phase rather than reopening
+  the high-level direction from scratch
+- verify the mutual-exclusion rules and help text against the new model
+- update all user-facing documentation together so the new terminology is introduced consistently
+- design migration messaging appropriate for a pre-v1 CLI, where breaking changes are acceptable
+  but should still be explicit
+
 #### CLI UX: Progress metrics quality and progress-display redesign
 
 The current Phase 2 implementation reports progress using the number of written commits (`Processed N commits...`). This is better than having no runtime visibility, and it remains acceptable for v0.1.4, but it is not always a good proxy for actual elapsed work.
@@ -40,6 +91,8 @@ For example, runs that use a state file and ultimately write zero new commits ca
 - analyze where time is actually spent during traversal, filtering, state handling, and output writing
 - redesign progress reporting based on that evidence rather than using commit count alone
 - keep the current Phase 2 behavior in v0.1.4 as a pragmatic baseline, but treat it as a first iteration rather than a final UX design
+
+**Design dependency**: This redesign should be approached together with the "Granular performance profiling" item (see Medium-term section). Progress display redesign requires knowing what is measurable; performance profiling provides that evidence. Design both together in the same release.
 
 #### CLI UX: `--help` option grouping and discoverability
 
@@ -72,7 +125,59 @@ Supporting suffixes such as `--rotate-size 500M` or `--rotate-size 1G` would ali
 
 ---
 
+#### CLI UX: Warn on unknown CLI arguments
+
+Currently, citty parses arguments with `strict: false` (inherited from `node:util.parseArgs`), which means unrecognized options are silently ignored. A typo such as `--rotate-line` (instead of `--rotate-lines`) passes through without any diagnostic, and the option simply has no effect. This is indistinguishable from a bug in the program itself.
+
+Most mainstream CLI frameworks treat unknown arguments as an error or at minimum a warning (e.g. `argparse` exits with code 2, `commander` errors by default, `yargs` with `strict()` mode). The current behavior is inconsistent with user expectations and can be considered a usability defect.
+
+**Reference behavior: git**:
+
+git is the primary CLI reference for gitrail's UX standards. Although many users interact with git through IDEs or GUI clients rather than the terminal directly, gitrail operates on local git repositories — making git's own CLI conventions the most relevant baseline. When users do invoke gitrail manually, the mental model they bring is shaped by git's behavior.
+
+git treats unknown options as fatal errors and exits immediately without performing any work:
+
+```
+$ git log --unknown-option
+fatal: unrecognized argument: --unknown-option
+# exit code: 128
+```
+
+This means the expected behavior for gitrail is also **error on unknown arguments, exit non-zero, perform no extraction**. A `console.warn`-and-continue approach (warn but proceed) is inconsistent with this baseline and should be considered a fallback only if implementation constraints prevent a clean error path.
+
+**Fix directions to evaluate at design time**:
+
+- **`setup()` hook approach**: In the `defineCommand` `setup()` hook, compare `rawArgs` against the set of known option names (including aliases and kebab/camelCase variants) and emit a `console.warn` to stderr for each unrecognized option. Low implementation cost; no dependency changes.
+- **citty issue / upstream fix**: File a feature request upstream to expose a `strict` mode option. Monitor for resolution before implementing locally.
+- **Library migration**: `commander` and `yargs` have built-in strict modes, but migrating away from citty is a larger architectural change and is not warranted for this issue alone.
+
+**Design considerations**:
+
+- Warnings should go to stderr so they are not captured by output redirection.
+- `--quiet` suppresses progress and summary output but should **not** suppress unknown-argument warnings — a silent typo with `--quiet` would be the hardest failure mode to diagnose.
+- Positional arguments and `--` passthrough must be excluded from the unknown-option check.
+- The warning message should suggest the closest known option name (edit-distance heuristic) if feasible.
+
+---
+
 ### Medium-term
+
+#### Development: Granular performance profiling
+
+Add per-phase timing instrumentation to measure where time is actually spent during extraction. The target granularity is: DAG traversal, blob reads, diff computation (per-file), and output writing.
+
+**Motivation**: File-level output mode (`--output-mode file`, introduced in v0.3.0) computes a tree diff for every commit, which increases processing time proportionally to the number of changed files. If performance is unacceptable on large repositories, the root cause needs to be identified precisely before any mitigation is considered — including the possibility of replacing isomorphic-git with a different Git backend.
+
+**Design considerations**:
+
+- Expose timing data in `ExtractionResult` (e.g. `timings: { traversalMs, blobReadMs, diffMs, writeMs }`) for programmatic access and test coverage
+- Consider a `--profile` flag to print per-phase timing to stderr (off by default to avoid changing default output)
+- Instrument `GitAdapter.getFileChanges()` separately from commit traversal, since diff cost scales with file count per commit
+- Measure first on real repositories of varying sizes; optimize only where evidence shows a bottleneck
+
+**Why deferred to v0.3.1**: The target of this measurement is v0.3.0's file-level output performance. v0.3.0 must be complete before meaningful baseline data exists. Implementing instrumentation before the feature exists would mean measuring against an incomplete workload.
+
+---
 
 #### Output: Configurable field inclusion/exclusion
 
@@ -83,6 +188,28 @@ Supporting suffixes such as `--rotate-size 500M` or `--rotate-size 1G` would ali
 ---
 
 ### Long-term
+
+#### Pipeline: Pluggable enrichment stage for organization-specific metadata
+
+Allow users to attach custom processing stages to gitrail's extraction pipeline so that
+organization-specific semantics can be derived without expanding the core schema for every use
+case.
+
+Example targets include parsing commit subjects that follow conventions such as Conventional
+Commits, deriving custom classification fields from file paths, or attaching additional metadata
+computed from diff content.
+
+**Design intent**:
+
+- keep gitrail core focused on canonical Git facts and broadly reusable output grains
+- move organization-specific interpretation to a user-controlled extension boundary
+- allow enrichment without forcing the project to standardize every downstream analytical need
+
+**Open design questions**:
+
+- whether the extension point should run in-process, as an external command, or via a streaming IPC boundary
+- what record shape and lifecycle guarantees plugins can rely on
+- how plugin failures should affect extraction success, state writing, and reproducibility
 
 #### Output: Branch reachability annotation per commit
 
@@ -120,22 +247,6 @@ Record which branch(es) each commit was reachable from at extraction time (e.g. 
 
 ---
 
-#### Output: Commit file diff stats
-
-- For each commit, include an array of changed files with `path`, `status`, `additions`, `deletions`
-- Made opt-in via `--include-files` flag (more expensive — requires tree comparison per commit)
-- Implementation: requires `isomorphic-git`'s `walk()` API with tree diff
-
----
-
-#### Output: File-level output mode
-
-- New mode where each output record represents a single changed **file** within a commit (rather than the commit itself)
-- Controlled by `--output-mode file` (default: `commit`)
-- Depends on commit file diff stats being implemented first
-
----
-
 #### Output: stdout support and stream-based OutputWriter
 
 Add `--output -` to write to stdout, enabling output to be piped into other tools directly.
@@ -162,54 +273,7 @@ At this point, `OutputWriter` should be redesigned around Node.js `Writable` str
 
 ## Development Environment Improvements
 
-### Near-term
-
-#### Preparation: Introduce `erasableSyntaxOnly` and refactor non-erasable syntax
-
-**Background and purpose**:
-
-The roadmap item "Migrate to Node.js built-in TypeScript support" (see Long-term section) requires that source code avoid TypeScript syntax that cannot be stripped at runtime — specifically syntax that has runtime semantics and cannot be removed by a simple type-erasing transform. The `erasableSyntaxOnly` compiler flag enforces this constraint statically.
-
-Introducing this flag well before the actual migration serves two purposes:
-
-1. **Prevent regression**: any future code addition that introduces non-erasable syntax (e.g. parameter properties, `const enum`, legacy decorators, `namespace`) will be caught by `tsc` and CI immediately, rather than discovered at migration time.
-2. **Prove readiness**: once the flag compiles cleanly, the codebase is structurally ready for `--strip-types`-based execution, independent of when the migration actually happens.
-
-**Work items**:
-
-- Add `"erasableSyntaxOnly": true` to `tsconfig.json`
-- Refactor all non-erasable syntax to comply. Based on the current codebase, the only known instance is the parameter property in `NodeStateStore` (`src/index.ts`); expand the field declaration explicitly
-
-**Why now**: The required refactoring is minimal (one site) and mechanically straightforward. The cost of introducing the flag early is low; the cost of discovering violations late — after more code has been written — grows over time.
-
----
-
 ### Medium-term
-
-#### Refactor: `Extractor.run()` decomposition and structural clarity
-
-`Extractor.run()` has grown incrementally as features were added across releases. The method currently handles five distinct concerns in sequence: session initialization, state file reading and validation, merge-base computation for new branches, per-branch traversal with fallback, and state file writing. Each concern is currently expressed as a flat block of imperative code within a single method body.
-
-**Goals**:
-
-- Extract each concern into a focused private method (e.g. `initializeStateMap()`, `computeNewBranchExclude()`, `processBranch()`, `buildExcludeHash()`)
-- Reduce the cognitive load of `run()` to orchestration only: calling helpers in sequence, managing the writer lifetime, and propagating results
-- Make future feature additions localized: a change to state-reading logic should touch only the state-reading helper, not the entire method
-
-**On the "declarative" direction**:
-
-Per-branch processing is naturally expressed as a `for...of` loop over `config.branches`. The architecture specification requires sequential, non-interleaved output (all commits from branch N before branch N+1 begins). Converting this to an `async forEach` or `Promise.all` pattern would risk violating this ordering guarantee and is explicitly out of scope. The intended "declarative" improvement is to extract the loop body into a named `processBranch(branch, context)` function — making the per-branch unit independently readable and testable — while keeping the loop itself as a sequential `for...of`.
-
-**Candidate private method boundaries** (to be refined at implementation time):
-
-- `initializeStateMap(): Promise<Map<string, CommitHash>>` — reads, validates, and populates the state map
-- `computeNewBranchExclude(newBranches: Set<string>, stateMap: Map<string, CommitHash>): Promise<CommitHash | undefined>` — merge-base computation for cross-run deduplication
-- `buildExcludeHash(branch: string, stateMap: Map, newBranchExclude: CommitHash | undefined): CommitHash | undefined` — `excludeHash` selection logic per branch
-- `processBranch(branch, context): Promise<void>` — ref resolution, commit walk, fallback, and write loop for a single branch
-
----
-
-### Long-term
 
 #### Migrate to Node.js built-in TypeScript support
 
