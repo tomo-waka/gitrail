@@ -28,6 +28,57 @@ This keeps the roadmap stable for both humans and LLMs while still making releas
 
 ### Near-term
 
+#### CLI UX: Parameter model redesign for extraction and output grain
+
+The current CLI parameter system mixes multiple conceptual axes in a way that is technically
+usable but not clean from a user-experience perspective. In particular, the combination of
+`--mode snapshot|incremental`, `--output-mode commit|file`, and `--on-missing-state` exposes an
+inconsistent parameter model: one axis is expressed as a generic `mode`, another as a prefixed
+`output-mode`, and the fallback behavior is named relative to the current implementation rather
+than the underlying extraction model.
+
+This should be treated as a **UX-level design bug**, not as a cosmetic naming issue. The problem
+is not limited to `--output-mode`; the full parameter system around extraction intent, output
+grain, and missing-state fallback should be redesigned together.
+
+**Decision taken from design discussion**:
+
+- replace `--mode snapshot|incremental` with boolean `--incremental`
+- replace `--output-mode commit|file` with boolean `--per-file`
+- replace `--on-missing-state error|snapshot` with `--missing-state=error|snapshot`
+- keep `snapshot` as an execution-model term in documentation and fallback semantics, but remove
+  it as a top-level CLI value
+
+**Resulting parameter model**:
+
+- default behavior: snapshot extraction
+- `--incremental`: extract only commits newer than the last recorded state
+- `--state <path>`: required with `--incremental`; without `--incremental`, acts as a write-only
+  recording path on successful snapshot extraction
+- `--missing-state=error|snapshot`: valid only with `--incremental`
+- `--per-file`: emit one record per changed file; without it, emit one record per commit
+
+**Important design rationale**:
+
+- `--incremental` expresses user intent directly and removes the overly abstract `mode` parameter
+- snapshot remains an important concept in gitrail because it communicates independent extraction
+  from a mutable DAG-backed repository state; this meaning should remain in docs and behavior even
+  if it is no longer exposed as a CLI enum value
+- the core output grain should be treated as `commit|file`; finer-grained interpretation should be
+  handled later, if needed, through enrichment or pipeline extensions rather than by expanding the
+  default CLI grain model
+- `--missing-state=error|snapshot` is preferred over alternatives such as `ignore` or `full`
+  because it names the actual fallback behavior precisely
+
+**Detailed design expectations**:
+
+- treat this parameter model as the baseline for the detailed design phase rather than reopening
+  the high-level direction from scratch
+- verify the mutual-exclusion rules and help text against the new model
+- update all user-facing documentation together so the new terminology is introduced consistently
+- design migration messaging appropriate for a pre-v1 CLI, where breaking changes are acceptable
+  but should still be explicit
+
 #### CLI UX: Progress metrics quality and progress-display redesign
 
 The current Phase 2 implementation reports progress using the number of written commits (`Processed N commits...`). This is better than having no runtime visibility, and it remains acceptable for v0.1.4, but it is not always a good proxy for actual elapsed work.
