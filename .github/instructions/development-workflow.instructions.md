@@ -29,10 +29,10 @@ The workflow relies on several document types. Each has a distinct role within t
 roadmap.md          Long-horizon backlog. Items are added at any time.
     │
     ↓  (select items for a release)
-PLAN.md             Release-level plan: goals, scope, phase list with status.
+PLAN.md             Release-level plan for the current release only.
     │
-    ↓  (one file per phase)
-plans/{version}/    Phase files: detailed design per phase (phase-template format).
+    ↓  (one file per phase, current release only)
+plans/              Phase files: detailed design per phase (phase-template format).
     │
     ↓  (referenced by phase Design References)
 *.instructions.md   Technical specifications: architecture, CLI, schema, traversal, etc.
@@ -41,17 +41,17 @@ plans/{version}/    Phase files: detailed design per phase (phase-template forma
 CHANGELOG.md        Released history.
 ```
 
-| Document                                   | Mutability during a release                                                 | Primary consumer                                   |
-| ------------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------- |
-| `roadmap.md`                               | Append-only (new items); existing items may gain release-target annotations | Planning session                                   |
-| `PLAN.md`                                  | Phase status updates only after planning is complete                        | All sessions                                       |
-| Phase files (`plans/{version}/phase-N.md`) | Frozen before implementation; status updated during/after                   | Branch session (one phase), trunk session (review) |
-| `*.instructions.md`                        | Updated during planning when phase design requires spec changes             | Branch session, planning session                   |
-| `copilot-instructions.md`                  | Rarely changed; project-level conventions                                   | All sessions                                       |
+| Document                         | Mutability during a release                                                        | Primary consumer                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `roadmap.md`                     | Append-only (new items); existing items may gain release-target annotations        | Planning session                                   |
+| `PLAN.md`                        | Current release only; overwritten at the start of a new release planning cycle     | All sessions                                       |
+| Phase files (`plans/phase-N.md`) | Current release only; frozen before implementation; removed during release cleanup | Branch session (one phase), trunk session (review) |
+| `*.instructions.md`              | Updated during planning when phase design requires spec changes                    | Branch session, planning session                   |
+| `copilot-instructions.md`        | Rarely changed; project-level conventions                                          | All sessions                                       |
 
 ### PLAN.md structure
 
-PLAN.md contains **release-level context only**. Phase design detail lives in individual phase files under `plans/{version}/`.
+PLAN.md contains **release-level context only**. Phase design detail lives in individual phase files under `plans/` for the current release only.
 
 When creating a new PLAN.md, use the following structure:
 
@@ -81,12 +81,12 @@ breaking-change policy, and primary focus areas.
 
 ### Phase 1: {Title}
 
-- **File**: [`plans/{version}/phase-1.md`](plans/{version}/phase-1.md)
+- **File**: [`plans/phase-1.md`](plans/phase-1.md)
 - **Status**: Planned | In progress | Completed
 
 ### Phase 2: {Title}
 
-- **File**: [`plans/{version}/phase-2.md`](plans/{version}/phase-2.md)
+- **File**: [`plans/phase-2.md`](plans/phase-2.md)
 - **Status**: Planned | In progress | Completed
 
 (repeat for each phase)
@@ -141,7 +141,7 @@ Unlike PLAN.md and phase files, roadmap.md does **not** have a rigid section tem
 
 ### Phase file structure
 
-Each phase file follows the format defined in [phase-template.instructions.md](phase-template.instructions.md). That document is the authoritative reference for section structure, fill-in timing, and authoring guidance.
+Each phase file follows the format defined in [phase-template.instructions.md](phase-template.instructions.md). Phase files are working documents for the current release only and live under `plans/` as `phase-N.md`. They are not intended to serve as permanent release-history records in the repository; historical traceability is provided by git history and CHANGELOG.md. That document is the authoritative reference for section structure, fill-in timing, and authoring guidance.
 
 ---
 
@@ -164,6 +164,8 @@ Four session types are used throughout a release cycle. Each has a defined lifes
 ### Context handoff between sessions
 
 - **Planning → Development trunk**: PLAN.md and phase files are the handoff artifacts. No copy-paste or verbal summary is needed — the documents are the contract.
+- **Planning session → Planning branch session**: Planning session produces a starting prompt for the target phase design task.
+- **Planning branch session → Planning session**: Branch session produces a structured Planning Branch Session Summary (see format below). The summary is a handoff artifact for unresolved questions, dependency notes, non-obvious rationale, and other planning observations that are not fully captured by the phase file itself. Human copies the summary into the planning session. The planning session then finalizes the phase file and any affected instructions files as needed.
 - **Development branch → Development trunk**: Branch session produces a structured summary (see Branch Session Summary below). Human copies the summary into the trunk session.
 - **Development trunk → Development branch**: Trunk session produces a starting prompt (see Starting Prompt below).
 
@@ -220,7 +222,7 @@ Record selections in PLAN.md (Scope Summary: included / excluded).
 
 #### 1d. Phase decomposition and provisional ordering
 
-Break the selected scope into phases. Each phase should be implementable in a single branch session.
+Break the selected scope into phases. Each phase should be designed to be implementable in a single branch session when reasonably possible, while still preserving a clear and coherent phase boundary.
 
 Determine a provisional execution order considering:
 
@@ -234,13 +236,15 @@ This order is provisional — it may be adjusted during detailed design (1e).
 
 Phases are designed one at a time, in order. For each phase, the planning session LLM asks the human whether to proceed **in the current planning session** or in a **planning branch session**. The human chooses based on expected complexity.
 
-**If the planning session is chosen**: the LLM fills in the phase file directly and continues to the next phase when done.
+**If the planning session is chosen**: the LLM fills in the phase file directly, summarizes the completed design, and pauses for explicit human confirmation before moving to the next phase.
 
-**If a planning branch session is chosen**: the planning session LLM creates a starting prompt for the branch session (analogous to Stage 2b, but for design work rather than implementation), then waits for the branch session to complete. The human provides the branch session output to the planning session before the next phase begins.
+**If a planning branch session is chosen**: the planning session LLM creates a starting prompt for the branch session (analogous to Stage 2b, but for design work rather than implementation), including the target phase identity, relevant design references, and the specific design questions or ambiguity to resolve. The planning branch session must return a **Planning Branch Session Summary** in the standard format defined below. That summary is not a replacement for the phase file; it is a supplemental handoff for unresolved questions, dependency notes, non-obvious rationale, and other planning observations that should be carried back to the planning session. The human provides that summary to the planning session before the next phase begins. The planning session then finalizes the phase file and any affected instructions files, summarizes the completed design, and pauses for explicit human confirmation before moving to the next phase.
 
 Repeat this per-phase cycle until all phases have detailed designs.
 
 > This loop mirrors the Stage 2 implementation cycle (2a–2e), with one key difference: the branch session is optional and created only when the design work is expected to be complex enough to benefit from isolation. Simple phases are designed inline in the planning session.
+
+At the end of each phase design step, the planning session must not advance automatically. It should explicitly ask the human whether to proceed to the next phase, revise the current phase, or stop.
 
 **Human escalation during design** (applies in both planning session and planning branch session):
 
@@ -266,6 +270,10 @@ Planning is complete when all of the following are true:
 - Cross-phase dependencies are identified and reflected in phase ordering.
 - Each selected roadmap item has a `Release target: vX.Y.Z` annotation in `roadmap.md`.
 
+Phase files created during planning are working artifacts for the current release only. They should remain stable during implementation, but they are not intended to be retained indefinitely after the release is completed.
+
+After these criteria are satisfied, the planning session must summarize the completed planning state and ask the human for explicit confirmation before treating planning as complete or handing off to the development trunk session. It must not automatically transition to implementation.
+
 ---
 
 ### Stage 2: Implementation Cycle
@@ -281,7 +289,26 @@ Before starting a branch session, the trunk session performs the following check
 1. **Build health**: The project's build, test, and format-check commands all pass. (The specific commands are defined in the project's `copilot-instructions.md` or `package.json`, not here.)
 2. **Prior-phase impact**: If the previous branch session summary contains "Deviations from Plan" or "Observations for Subsequent Phases", evaluate whether the current phase's Design Decisions or Target Files need adjustment.
 3. **Phase file completeness**: All sections of the current phase file are filled. If Design Decisions contain gaps, escalate to human — do not proceed to implementation.
-4. **If all checks pass**: Create the starting prompt for the branch session.
+4. **Phase sizing sanity check**: Confirm that the current phase still appears executable within one branch session at a reasonable level of scope and reviewability. If not, revise the phase plan before starting implementation.
+5. **If all checks pass**: Create the starting prompt for the branch session.
+
+##### When a phase does not fit in one branch session
+
+The workflow is designed so that each phase can be completed in a single branch session when reasonably possible. However, this is a planning target, not an absolute constraint.
+
+**Primary responsibility for this judgment belongs to the planning/trunk session**, because phase sizing and phase boundaries are part of release orchestration rather than branch-level implementation autonomy.
+
+There are two points at which this may be decided:
+
+1. **During planning or pre-execution review**: if the planning/trunk session determines that a phase is too large or too mixed in scope to be executed cleanly in one branch session, it should revise the phase decomposition before implementation starts.
+2. **During implementation**: if the branch session discovers that completing the phase in one session would be unsafe, unreasonably large, or would require forcing together work that should be reviewed separately, it must not redefine the phase on its own. Instead, it should report `partially-completed` status and explain the situation in the Branch Session Summary.
+
+When such a summary is returned, the trunk session decides which of the following applies:
+
+- **Continuation of the same phase**: the phase design remains valid, but the implementation should continue in a follow-up branch session.
+- **Phase redesign or split**: the work revealed that the current phase boundary is incorrect, too broad, or misaligned with downstream phases.
+
+A branch session may detect that one-session completion is no longer appropriate, but it must not unilaterally redefine phase boundaries. If the correct response is unclear, escalate to the human.
 
 #### 2b. Starting prompt creation (trunk session)
 
@@ -306,9 +333,15 @@ The branch session:
 
 **Behavioral rules for the branch session**:
 
-- Do not reopen a Design Decision unless verification evidence shows it is blocked or incorrect.
-- If an ambiguous technical decision arises that is not covered by the phase file, pause and ask the human rather than making an architectural choice.
-- Small deviations (e.g. a test helper name, an import order) are acceptable. Record them in the summary.
+- Treat the phase file as the implementation contract. Do not reopen a Design Decision unless implementation evidence shows it is blocked, incorrect, or incomplete in a way that prevents completion.
+- The branch session may make **local, design-preserving adjustments** without prior escalation when they are necessary to complete the phase as designed. Examples include:
+  - additional type-driven fixes required to restore compile health after a planned change
+  - small implementation adjustments to match the actual behavior of a dependency or runtime API
+  - narrow target-file expansion needed to complete the already-decided change safely
+- These adjustments must not change the phase's purpose, revise an owning-layer decision, alter a documented external behavior, or introduce a materially different technical approach.
+- Record every such adjustment in `Deviations from Plan`, even when it was resolved autonomously.
+- If an ambiguous technical decision arises that is not covered by the phase file — or if the required change appears to modify a Design Decision, public contract, cross-phase dependency, or documented behavior — pause and ask the human rather than making an architectural choice.
+- Small deviations (e.g. a test helper name, an import order, or similarly local naming/organization choices) are acceptable. Record them in the summary if they are relevant to later review.
 - If the phase cannot be completed, set the summary status to `blocked` and describe the blocker.
 
 #### 2d. Summary handoff (branch → trunk)
@@ -323,7 +356,10 @@ The trunk session:
 2. Inspects the actual project state if needed (file diffs, test output).
 3. If issues are found, coordinates resolution (may involve another branch session or direct fixes).
 4. Updates the phase status in PLAN.md.
-5. Proceeds to the next phase (back to 2a).
+5. Summarizes the current phase result, including any deviations, follow-up concerns, and the recommended next step.
+6. Pauses for explicit human confirmation before advancing to the next phase, launching a follow-up branch session, or moving to Stage 3.
+
+The trunk session must not automatically continue past a phase boundary. At each phase transition, the human decides whether to proceed, request revision, or stop.
 
 ---
 
@@ -331,11 +367,38 @@ The trunk session:
 
 **Session**: Development trunk session.
 
+Before entering Stage 3, the development trunk session must summarize the overall implementation state and ask the human for explicit confirmation that phase execution is complete and release-completion work should begin.
+
 1. Execute release tasks defined in PLAN.md (documentation updates, changelog, migration notes, roadmap cleanup).
 2. Run final verification checklist.
-3. Hand off to human for the actual release operation (e.g. GitHub release, npm publish).
+3. Remove the current release's phase files from `plans/` after their contents are no longer needed for active execution or review. Do not retain them as permanent repository records; rely on git history and CHANGELOG.md for release-history traceability.
+4. Hand off to human for the actual release operation (e.g. GitHub release, npm publish).
 
 Note: The specific content of release tasks (which documentation to update, what to include in the changelog, how to clean up roadmap entries) is defined in PLAN.md's Release Tasks section, not in this workflow document. This keeps the workflow generic and the release-specific details in the plan.
+
+---
+
+## Planning Branch Session Summary Format
+
+Every planning branch session must produce a summary in this format:
+
+```text
+## Planning Branch Session Summary
+### Phase: {N} — {title}
+### Status: completed | partially-completed | blocked
+### Recommended Updates to the Phase File
+- (what should be added, changed, clarified, or removed in the phase file; "None" if the current draft already stands as-is)
+### Open Questions for Human
+- (only genuinely unresolved decisions that require human judgment; "None" if everything was resolved)
+### Ordering / Dependency Notes
+- (any suggested change to phase ordering, newly discovered dependency, or cross-phase impact; "None" if nothing to report)
+### Instructions Files Impact
+- (instruction/spec files that should be updated, or confirmation that none are affected)
+### Non-Obvious Rationale
+- (brief reasoning that may help the planning session understand why a recommendation was made)
+### Risks / Follow-ups
+- (planning risks, validation needs, or items that should be checked before implementation; "None" if nothing to report)
+```
 
 ---
 
@@ -350,7 +413,7 @@ Every development branch session must produce a summary in this format:
 ### Changes Made
 - (concise list of implemented changes)
 ### Deviations from Plan
-- (any departure from the phase file's Design Decisions or Target Files; "None" if fully aligned)
+- (any departure from the phase file's Design Decisions or Target Files, including autonomous local adjustments made to complete the phase without changing its design intent; "None" if fully aligned)
 ### Observations for Subsequent Phases
 - (discoveries that may affect later phases; "None" if nothing to report)
 ### Verification Results
@@ -380,6 +443,9 @@ Every development branch session must produce a summary in this format:
 - Verify cross-phase consistency: if phase N modifies an interface, check that phase N+1's Target Files account for it.
 - Confirm instructions files are updated when behavior specs change.
 - At planning completion, verify all completion criteria (Stage 1f) are met.
+- When using a planning branch session, treat the phase file as the canonical design artifact. The Planning Branch Session Summary should capture only the updates, unresolved questions, dependency notes, and rationale that need to be carried back to the planning session.
+- After completing each phase design step, summarize the result and pause for explicit human confirmation before moving to the next phase.
+- When all planning-completion criteria are satisfied, ask the human to confirm that planning is complete before handing off to implementation.
 
 #### In trunk sessions
 
@@ -387,6 +453,8 @@ Every development branch session must produce a summary in this format:
 - Create starting prompts that are self-contained (Stage 2b).
 - When reviewing branch summaries, explicitly check "Deviations" and "Observations" sections for downstream impact.
 - If the human does not request a pre-execution check before starting a branch session, remind them.
+- After reviewing each branch-session result, summarize the current state and pause for explicit human confirmation before advancing across a phase boundary.
+- Before moving from phase execution to Stage 3 release-completion work, ask the human to confirm that implementation-stage work is complete.
 
 #### In branch sessions
 
@@ -413,12 +481,15 @@ Every development branch session must produce a summary in this format:
 - Naming choices not specified in the phase file (variable names, test helper names).
 - Minor implementation details consistent with the phase's Design Decisions.
 - Test structure decisions when the phase file specifies "add tests" without prescribing exact test organization.
+- Additional implementation work that is directly implied by the planned change but was not exhaustively listed in Target Files, as long as it does not alter the phase's design intent.
+- Small corrective adjustments required because a dependency, runtime API, or type/checking boundary behaves slightly differently from what was expected during planning, as long as the adjustment preserves the same design.
 
 ### When to escalate to the human (within the branch session)
 
 - A Design Decision appears to be incorrect or blocked by a technical constraint.
 - An ambiguous requirement that could lead to meaningfully different implementations.
 - A discovered issue in a file not listed in Target Files that appears related to the phase's scope.
+- A requested or discovered change appears small in code size but would rename, redefine, or otherwise change the underlying concept expressed by the design rather than merely improving local wording.
 
 ### When to escalate to the trunk session
 
