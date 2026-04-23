@@ -99,6 +99,28 @@ implementation sessions must treat the following contract as binding.
   file-change expansion, output-writer lifecycle, progress ownership, and persisting the returned
   checkpoint only after successful output completion.
 
+### Phase 3 expansion and projection stage contracts
+
+- `FileChangeExpander` is introduced to separate file-change expansion from traversal and projection.
+- It owns the transformation of `CommitFact` into `FileChangeFact` by calling `GitAdapter.getFileChanges()`
+  for each commit and expanding zero or more file changes per commit. Expander semantics remain unchanged
+  from the original: root commits have all files as "added"; merge commits use first-parent file changes;
+  binary files have `null` additions/deletions; empty commits produce zero output.
+- It consumes an `AsyncIterable<CommitFact>` and produces an `AsyncIterable<FileChangeFact>`. It receives
+  `repositoryPath` and a `GitAdapter` injected into its constructor.
+- `CommitRecordProjector` and `FileChangeRecordProjector` are introduced to separate output schema
+  projection from expansion and traversal.
+- Each projector owns the transformation of facts into output schema: `CommitFact` → `OutputCommit` and
+  `FileChangeFact` → `OutputFileRecord` respectively.
+- Projectors are stateless; they receive repository metadata (name, URL) in the constructor and perform
+  pure transformations. They do not read `GitAdapter`, `CheckpointStore`, or `OutputWriter`.
+- `Extractor` makes the decision about which projector pipeline to use (`if outputMode === "file" then
+expander → file projector, else commit projector`) before consuming the projection output. This moves
+  granularity branching out of the write loop but keeps the orchestration decision in `Extractor` for now.
+  In Phase 4, this decision moves to `ExtractionCoordinator`.
+- `Extractor` remains responsible for: checkpoint store I/O, writer lifecycle, progress ownership, metrics
+  aggregation, and persisting the traversal stage's candidate checkpoint only after successful writer close.
+
 ---
 
 ## Component Responsibilities
@@ -121,10 +143,11 @@ Responsibilities:
 - Read the state file at startup; write it atomically (`.tmp` → rename) only after all output files are fully flushed and closed
 - Instantiate `OutputWriter` with the rotation config — rotation thresholds are enforced inside `OutputWriter`, not in Core
 
-During the Phase 2 migration split, Core keeps checkpoint-store I/O, output projection,
-file-change expansion, writer lifecycle, and progress timing in `Extractor`, while
-`CommitTraversalExtractor` becomes the owning boundary for traversal mechanics and checkpoint
-candidate composition.
+During the Phase 3 migration split, Core keeps checkpoint-store I/O, the granularity-selection
+decision, writer lifecycle, and progress timing in `Extractor`, while `CommitTraversalExtractor`,
+`FileChangeExpander`, `CommitRecordProjector`, and `FileChangeRecordProjector` own traversal,
+expansion, and projection as separate stage boundaries. Checkpoint commit timing and sink
+ownership remain in `Extractor` until Phase 4 introduces the coordinator/orchestration boundary.
 
 Key types:
 
