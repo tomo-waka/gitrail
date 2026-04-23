@@ -47,6 +47,46 @@ ambiguity about where logic belongs or what behavior is correct, use these as th
 
 ---
 
+## v0.4.0 Migration Contract
+
+The v0.4.0 release introduces a phased architecture redesign from the current mixed-responsibility
+`Extractor` flow to an explicit fact-based pipeline. During this migration, planning and
+implementation sessions must treat the following contract as binding.
+
+### Target end-state vocabulary
+
+- `CommitFact` and `FileChangeFact` are the stable Core-owned terms for intermediate extraction data.
+- `CheckpointStore`, `ExtractionCheckpoint`, and `BranchCheckpoint` are the stable Core-owned terms
+  for checkpoint persistence contracts.
+- `ExtractionCoordinator`, `CommitTraversalExtractor`, `FileChangeExpander`,
+  `CommitRecordProjector`, `FileChangeRecordProjector`, and `OutputSink` are the target named stage
+  boundaries for the redesigned pipeline.
+
+### Migration boundary rules
+
+- The redesign is phased. Do not collapse the migration into a single rewrite.
+- `Extractor` remains the compatibility facade until the dedicated coordinator/orchestration phase
+  explicitly replaces its mixed responsibilities.
+- No phase may move checkpoint commit timing, sink lifecycle ownership, or progress ownership into a
+  coordinator abstraction before that orchestration phase is reached.
+- No phase may move file-granularity branching into dedicated expander/projector modules before the
+  dedicated projector-split phase is reached.
+- CLI-visible behavior, output schema semantics, and the current `ExtractionResult` shape must
+  remain unchanged unless a later release phase explicitly redesigns those user-facing contracts.
+
+### Ownership rules during migration
+
+- Core owns the fact vocabulary, checkpoint vocabulary, traversal/extraction workflow, and the
+  compatibility seams needed to preserve behavior while the pipeline is being split.
+- The Git adapter continues to own Git-native raw commit/file-change data and repository access
+  primitives; it must not be reshaped around the new fact vocabulary prematurely.
+- The output layer continues to own `OutputRecord` serialization, rotation, and concrete file
+  writing concerns.
+- Domain-oriented stage boundaries are preferred over using `OutputRecord` as the final Core
+  boundary. Projection remains distinct from traversal and from persistence in the target design.
+
+---
+
 ## Component Responsibilities
 
 ### CLI Layer (`src/cli/`)
