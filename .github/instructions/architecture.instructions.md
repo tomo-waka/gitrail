@@ -85,6 +85,20 @@ implementation sessions must treat the following contract as binding.
 - Domain-oriented stage boundaries are preferred over using `OutputRecord` as the final Core
   boundary. Projection remains distinct from traversal and from persistence in the target design.
 
+### Phase 2 traversal-stage contract
+
+- `CommitTraversalExtractor` is the first extracted stage boundary in the v0.4.0 migration.
+- It owns branch-head resolution and collection, per-branch exclusion-boundary calculation,
+  merge-base calculation for newly added branches, sequential branch traversal, cross-branch
+  deduplication, `since-date` filtering, and `COMMIT_NOT_FOUND` fallback behavior.
+- It consumes already-loaded checkpoint data from Core; it does not read or write
+  `CheckpointStore` and it does not decide checkpoint commit timing.
+- Its output contract is a traversal result containing `AsyncIterable<CommitFact>` plus a
+  candidate `ExtractionCheckpoint` derived from the successfully resolved branch heads.
+- `Extractor` remains responsible for repository/checkpoint loading, output projection,
+  file-change expansion, output-writer lifecycle, progress ownership, and persisting the returned
+  checkpoint only after successful output completion.
+
 ---
 
 ## Component Responsibilities
@@ -106,6 +120,11 @@ Responsibilities:
 - Apply differential filtering (since-commit / since-date); uses `continue` (not `break`) for `--since-date` because BFS order is not chronological
 - Read the state file at startup; write it atomically (`.tmp` → rename) only after all output files are fully flushed and closed
 - Instantiate `OutputWriter` with the rotation config — rotation thresholds are enforced inside `OutputWriter`, not in Core
+
+During the Phase 2 migration split, Core keeps checkpoint-store I/O, output projection,
+file-change expansion, writer lifecycle, and progress timing in `Extractor`, while
+`CommitTraversalExtractor` becomes the owning boundary for traversal mechanics and checkpoint
+candidate composition.
 
 Key types:
 

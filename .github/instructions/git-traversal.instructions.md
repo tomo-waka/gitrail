@@ -29,6 +29,18 @@ Commits form a Directed Acyclic Graph (DAG). Each commit points to one or more p
 
 A commit X is "reachable" from commit Y if X can be found by following parent links starting from Y.
 
+## Stage Ownership During v0.4.0 Migration
+
+- `CommitTraversalExtractor` is the Core stage that owns branch-head resolution, exclusion-boundary
+  calculation, merge-base calculation for newly added branches, sequential branch traversal,
+  cross-branch deduplication, `since-date` filtering, and `COMMIT_NOT_FOUND` fallback behavior.
+- `Extractor` (and later `ExtractionCoordinator`) remains responsible for `CheckpointStore` I/O and
+  for deciding when the traversal stage's returned `ExtractionCheckpoint` is committed. That timing
+  remains after successful output completion.
+- The traversal stage consumes previously loaded checkpoint data and returns commit facts together
+  with the candidate next checkpoint. This ownership split must not change any traversal semantics
+  defined below.
+
 ---
 
 ## Traversal Algorithm
