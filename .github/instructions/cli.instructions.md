@@ -85,9 +85,10 @@ Both may be specified simultaneously — rotation triggers when **either** thres
 
 ### Control
 
-| Parameter | Alias | Type    | Default | Description                                    |
-| --------- | ----- | ------- | ------- | ---------------------------------------------- |
-| `--quiet` | `-q`  | boolean | `false` | Suppress progress and summary output on stderr |
+| Parameter   | Alias | Type    | Default | Description                                                                                                                         |
+| ----------- | ----- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `--quiet`   | `-q`  | boolean | `false` | Suppress progress, summary, and profile output on stderr                                                                            |
+| `--profile` |       | boolean | `false` | Print per-stage timing information as an aligned multi-line block to stderr after a successful extraction. Suppressed by `--quiet`. |
 
 ---
 
@@ -179,6 +180,9 @@ gitrail --branch main --since-date 2024-01-01T00:00:00Z ./my-repo
 
 # File-granularity output (one record per changed file per commit)
 gitrail --per-file -b main ./my-repo
+
+# Successful-run profiling output on stderr
+gitrail --profile -b main ./my-repo
 
 # With file rotation
 gitrail -b main --rotate-lines 10000 --rotate-size 104857600 ./my-repo

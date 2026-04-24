@@ -58,6 +58,7 @@ implementation sessions must treat the following contract as binding.
 - `CommitFact` and `FileChangeFact` are the stable Core-owned terms for intermediate extraction data.
 - `CheckpointStore`, `ExtractionCheckpoint`, and `BranchCheckpoint` are the stable Core-owned terms
   for checkpoint persistence contracts.
+- `ExtractionTimings` is the stable Core-owned term for stage-aligned extraction timing data.
 - `ExtractionCoordinator`, `CommitTraversalExtractor`, `FileChangeExpander`,
   `CommitRecordProjector`, `FileChangeRecordProjector`, and `OutputSink` are the target named stage
   boundaries for the redesigned pipeline.
@@ -148,6 +149,42 @@ expander → file projector, else commit projector`) before consuming the projec
 - The `CheckpointStore` dependency in the coordinator is optional (`CheckpointStore | undefined`);
   when absent (snapshot mode without `--state`), the coordinator skips the checkpoint write.
 - `ExtractionResult` shape and `src/index.ts` runtime wiring remain unchanged in Phase 4.
+
+### Phase 6 profiling contract
+
+- Phase 6 introduces stage-aligned performance instrumentation without changing default extraction
+  semantics.
+- `ExtractionResult` gains an optional `timings?: ExtractionTimings` field. The field remains
+  optional for compatibility, but successful runs populate it once Phase 6 is implemented.
+- `ExtractionTimings` is a Core-owned TypeScript interface with required readonly numeric buckets:
+
+  ```typescript
+  export interface ExtractionTimings {
+    readonly traversalMs: number;
+    readonly blobReadMs: number;
+    readonly diffMs: number;
+    readonly projectionMs: number;
+    readonly writeMs: number;
+  }
+  ```
+
+  It does not carry `elapsedMs`, nested timing groups, optional stage keys, or a free-form map.
+  Total wall-clock duration remains `ExtractionResult.elapsedMs`.
+
+- `ExtractionTimings` uses the stable bucket names `traversalMs`, `blobReadMs`, `diffMs`,
+  `projectionMs`, and `writeMs`. Existing `elapsedMs` remains the authoritative end-to-end total.
+- Timing ownership follows the existing stage boundaries:
+  - `CommitTraversalExtractor` owns `traversalMs`
+  - active projector owns `projectionMs`
+  - `ExtractionCoordinator` owns `writeMs` around `OutputSink.write()` and `OutputSink.close()`
+  - `IsomorphicGitAdapter` owns `blobReadMs` and `diffMs` for `getFileChanges()` internals
+- The `GitAdapter` interface remains unchanged in Phase 6. Profiling must not alter
+  `getFileChanges()` return values or add profiling metadata to Core-facing adapter contracts.
+- The CLI adds a boolean `--profile` flag that prints successful-run timing output as an aligned
+  multi-line block to stderr. `--quiet` suppresses profile output together with the normal
+  progress/summary stderr output.
+- Failure-path partial timing output is out of scope for Phase 6; extraction errors preserve the
+  current error-path behavior.
 
 ---
 
