@@ -211,13 +211,12 @@ Five session types are used throughout a release cycle. Each has a defined lifes
 
 ### Context handoff between sessions
 
-When a session produces a handoff artifact that the human will copy into another session as chat content, output the handoff body itself as the entire assistant message content.
-This keeps the message directly copy-pasteable into the next session without manual cleanup.
+When a session produces a handoff artifact that the human will copy into another session as chat content, place the handoff body first in the message without any wrapper prose, delimiter lines, or code fences around it.
+This keeps the handoff artifact directly copy-pasteable from the top of the message without manual cleanup.
 
-- Do not add wrapper prose such as "Use the starting prompt below".
-- Do not surround the prompt with delimiter lines or code fences.
-- Do not append instructions outside the prompt body.
-- This rule applies to starting prompts produced for planning branch sessions, design refinement sessions, and development branch sessions, and to summaries that are intended to be copied into another session.
+If supplemental notes for the human are necessary (e.g. a significant risk that arose, a decision that warrants human review before the next session starts), append them after the handoff body separated by `---` and a `## Notes for Human` heading. Do not embed notes inside the handoff body itself.
+
+This rule applies to starting prompts produced for planning branch sessions, design refinement sessions, and development branch sessions, and to summaries that are intended to be copied into another session.
 
 - **Planning → Development trunk**: PLAN.md and phase files are the handoff artifacts. No copy-paste or verbal summary is needed — the documents are the contract.
 - **Planning session → Planning branch session**: Planning session produces a starting prompt for the target phase design task.
