@@ -12,6 +12,8 @@ The goal is to ensure that every phase is specified thoroughly enough to execute
 
 Phase files are working documents for the current release only. They are not intended to serve as permanent archival records in the repository.
 
+Each phase file must declare its design maturity. The valid states are defined below, and only an implementation-ready phase file may be used for branch implementation.
+
 ## Pause Types in This Workflow
 
 This workflow distinguishes three different kinds of pauses:
@@ -33,20 +35,34 @@ This template is designed to reduce **undesirable pauses**. It does **not** atte
 | `.github/instructions/*.instructions.md`                    | Technical specifications; linked from phase Design References               |
 | `.github/copilot-instructions.md`                           | Project-level conventions                                                   |
 
+## Design Maturity States
+
+### Implementation-ready
+
+This is the default state. The phase file contains the finished Design Decisions, Target Files, and verification expectations needed for a development branch session to execute without reopening design.
+
+### Deferred design
+
+Use this state only when a bounded unresolved portion of the phase depends on implementation evidence from an earlier phase and cannot be reduced during planning to a stable contract.
+
+Deferred design is not a general TODO state. It requires a completed Deferred Design Controls section, explicit predecessor dependency, and a named refinement trigger so the remaining uncertainty stays bounded and reviewable.
+
 ## When to Fill Each Section
 
-| Section                   | When                                                                  | Owner                                      |
-| ------------------------- | --------------------------------------------------------------------- | ------------------------------------------ |
-| Title, summary, Status    | When the phase file is first created                                  | Planning session                           |
-| Design References         | Planning session                                                      | Planning session                           |
-| Design Decisions          | **Before the implementation session starts**                          | Planning/pre-implementation session        |
-| Non-Goals                 | Before implementation                                                 | Planning session                           |
-| Target Files              | Before implementation                                                 | Planning/pre-implementation session        |
-| Documentation Touchpoints | Before implementation                                                 | Planning session                           |
-| Implementation Notes      | When non-obvious details are known                                    | Pre-implementation or early implementation |
-| Verification              | Before implementation (commands); after first run (behavioral checks) | Pre-implementation session                 |
+| Section                   | When                                                                                  | Owner                                      |
+| ------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Title, summary, Status    | When the phase file is first created                                                  | Planning session                           |
+| Design Maturity           | When the phase file is first created; update if deferred design is later resolved     | Planning/pre-implementation session        |
+| Design References         | Planning session                                                                      | Planning session                           |
+| Design Decisions          | **Before the implementation session starts**                                          | Planning/pre-implementation session        |
+| Deferred Design Controls  | During planning if the phase is marked deferred design; resolve before implementation | Planning/pre-implementation session        |
+| Non-Goals                 | Before implementation                                                                 | Planning session                           |
+| Target Files              | Before implementation                                                                 | Planning/pre-implementation session        |
+| Documentation Touchpoints | Before implementation                                                                 | Planning session                           |
+| Implementation Notes      | When non-obvious details are known                                                    | Pre-implementation or early implementation |
+| Verification              | Before implementation (commands); after first run (behavioral checks)                 | Pre-implementation session                 |
 
-The `Owner` column indicates planning-stage responsibility, not necessarily which session performs the edit. When Stage 1e-1 selects `planning branch session`, that branch session may fill or update the phase file directly during detailed design, while the planning session still owns initial creation, cross-phase review, and finalization.
+The `Owner` column indicates planning-stage responsibility, not necessarily which session performs the edit. When Stage 1e-1 selects `planning branch session`, that branch session may fill or update the phase file directly during detailed design, while the planning session still owns initial creation, cross-phase review, and finalization. If a phase is marked deferred design, the later Stage 2 design refinement session may finalize the deferred sections before implementation begins.
 
 Sections marked "Before the implementation session starts" are the ones most likely to cause mid-session pauses if left blank.
 
@@ -68,16 +84,23 @@ _<One- or two-sentence statement of what this phase accomplishes and the specifi
 - [ ] In progress
 - [ ] Completed
 
+#### Design Maturity
+
+- [ ] Implementation-ready
+- [ ] Deferred design
+
 #### Design References
 
 _Links to instruction files or roadmap items that specify the target behavior. Omit the section entirely if no external spec applies._
 
-- [`instructions/foo.instructions.md`](foo.instructions.md) — <relevant section or topic>
+- `instructions/<name>.instructions.md` — <relevant section or topic>
 - Roadmap item: "<item title>"
 
 #### Design Decisions
 
-_Pre-resolved choices that the implementation session must not re-open. This is the most important section. Every missing entry here is a potential undesirable pause during implementation._
+_Pre-resolved choices that the implementation session must not re-open. This is the most important section. Every uncontrolled missing entry here is a potential undesirable pause during implementation._
+
+_If the phase is implementation-ready, this section must contain finished choices only. If the phase is deferred design, resolve everything that can already be fixed now and defer only the bounded remainder described in Deferred Design Controls._
 
 Fill in all that apply:
 
@@ -89,6 +112,17 @@ Fill in all that apply:
 - **Edge case behavior**: <e.g. what happens when the state file is missing, or input is empty>
 - **Any other non-obvious decision that was consciously made**
 
+#### Deferred Design Controls
+
+_Include this section only when the phase is marked as deferred design. This section is required for deferred design and should not be used as a generic backlog of unresolved thoughts._
+
+- **Why deferred**: <why the remaining design depends on predecessor implementation evidence>
+- **Depends on**: <predecessor phase(s), branch summaries, diffs, or repository state that must exist first>
+- **Fixed before refinement**: <constraints or decisions that are already locked and must not be reopened>
+- **To be finalized in refinement**: <specific design decisions that are intentionally deferred>
+- **Refinement trigger**: <the exact event that allows reopening, such as "Phase 1 implementation and review completed">
+- **Required inputs**: <artifacts the refinement session must inspect>
+
 #### Non-Goals
 
 _Explicitly out-of-scope work. Prevents scope creep during implementation. At least one entry is expected for every phase that touches a shared module._
@@ -98,7 +132,7 @@ _Explicitly out-of-scope work. Prevents scope creep during implementation. At le
 
 #### Target Files
 
-_Files to create or modify. Enough detail to start without a workspace exploration step._
+_Files to create or modify. Enough detail to start without a workspace exploration step. If the phase is deferred design, list the files or file areas already known and mark provisional entries clearly until refinement finalizes them._
 
 | File                   | Action | Notes                                  |
 | ---------------------- | ------ | -------------------------------------- |
@@ -108,7 +142,7 @@ _Files to create or modify. Enough detail to start without a workspace explorati
 
 #### Documentation Touchpoints
 
-_Sections in `docs/`, `instructions/`, or other markdown files that describe behavior this phase changes or resolves. Enumerate every section that will become stale or incorrect after implementation — including "known limitation", "future work", and "future enhancement" entries that the phase implements._
+_Sections in `docs/`, `instructions/`, or other markdown files that describe behavior this phase changes or resolves. Enumerate every section that will become stale or incorrect after implementation — including "known limitation", "future work", and "future enhancement" entries that the phase implements. If the phase is deferred design, list the touchpoints already known during planning and finalize them during refinement before implementation._
 
 _Omit this section entirely if the phase makes no change to documented behavior._
 
@@ -144,10 +178,12 @@ npm run format:check
 
 ## Authoring Notes
 
+- Declare the phase's Design Maturity explicitly. The default target is `Implementation-ready`; use `Deferred design` only when the remaining design truly depends on predecessor implementation evidence.
 - **Design Decisions before Non-Goals before Target Files.** This order matters: decisions constrain which files need to change, and non-goals constrain which files should not be touched.
-- Write Design Decisions as finished choices, not as open questions. If a choice is still open, resolve it in a planning conversation before marking the phase file ready for implementation.
+- Write Design Decisions as finished choices, not as open questions. If a choice is still open, resolve it before marking the phase file implementation-ready. The only exception is a bounded deferred-design phase with a completed Deferred Design Controls section.
 - A complete phase file should reduce undesirable pauses during implementation. It should not attempt to suppress required escalations or authorization gates defined by the workflow.
 - Design each phase to fit within a single implementation session when reasonably possible. If that would require forcing unrelated work together or making the phase too ambiguous, prefer a clearer phase boundary over strict single-session sizing.
+- Use Deferred Design Controls only to name the exact decisions that must wait for predecessor implementation evidence, and keep that deferred surface as small as possible.
 - Behavioral verification items should cover user-visible changes. "Build and tests pass" alone is not sufficient when the phase changes CLI behavior or output format.
 - Keep Implementation Notes minimal. If an implementation detail is important enough to note, consider whether it belongs in Design Decisions instead.
 - Implementation Notes are for execution guidance only. If a note changes the technical approach, ownership boundary, external behavior, or any other substantive design choice, it belongs in Design Decisions instead.

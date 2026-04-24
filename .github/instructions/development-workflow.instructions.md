@@ -167,29 +167,55 @@ Unlike PLAN.md and phase files, roadmap.md does **not** have a rigid section tem
 
 Each phase file uses the format defined in [phase-template.instructions.md](phase-template.instructions.md), lives under `plans/` as `phase-N.md`, and follows that document as the authoritative reference for section structure and fill-in timing.
 
+### Deferred design
+
+The default rule of this workflow is that a phase reaches **implementation-ready** design maturity during Stage 1 and then remains stable through Stage 2.
+
+An exception is allowed when a later phase depends not merely on the intended design of an earlier phase, but on the **implemented shape** that becomes visible only after that earlier phase is built and reviewed. This workflow calls that state **deferred design**.
+
+Deferred design is a controlled planning state. It allows a bounded remainder of design work to move to a later pre-implementation step without treating the phase as implementation-ready. It may be used only when all of the following are true:
+
+- the phase depends on implementation evidence from one or more predecessor phases
+- the unresolved portion cannot be reduced during planning to a stable interface, invariant, or other contract that would make the phase implementation-ready
+- the still-open choices can be bounded explicitly in the phase file rather than left as vague TBDs
+- delaying those choices to a dedicated pre-implementation design step is more correct than forcing speculative decisions during Stage 1
+
+Deferred design should not be used to compensate for missing analysis, weak phase boundaries, or alternatives that simply have not been reviewed yet.
+
+When a phase is marked as deferred design:
+
+- the phase file must still define the phase purpose, fixed constraints, non-goals, predecessor dependency, refinement trigger, and the exact deferred design items
+- planning must resolve everything that can already be resolved and defer only the bounded remainder
+- the deferred decisions must be reopened in a dedicated **design refinement session** during Stage 2, before any implementation branch session begins
+- a development branch session must not implement from a phase file that is still marked as deferred design
+
 ---
 
 ## Session Types
 
-Four session types are used throughout a release cycle. Each has a defined lifespan, responsibility scope, and context boundary.
+Five session types are used throughout a release cycle. Each has a defined lifespan, responsibility scope, and context boundary.
 
-| Session type                   | Lifespan                                                 | Responsibility                                                                            | Context sources                                                                          |
-| ------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Planning session**           | From release intent to planning completion               | Scope decision, phase decomposition, detailed design per phase, instructions file updates | roadmap.md, PLAN.md, phase files, instructions files                                     |
-| **Planning branch session**    | Single-phase design task                                 | Focused design work for a complex phase, isolated from the full planning scope            | PLAN.md (overview only), target phase file, relevant instructions files                  |
-| **Development trunk session**  | Entire implementation cycle (all phases + release tasks) | Pre-execution checks, starting prompt creation, result review, release tasks              | PLAN.md, all phase files, branch session summaries                                       |
-| **Development branch session** | Single phase implementation                              | Implementation, testing, verification                                                     | PLAN.md (overview only), target phase file, relevant instructions files, starting prompt |
+| Session type                   | Lifespan                                                 | Responsibility                                                                            | Context sources                                                                                                                |
+| ------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Planning session**           | From release intent to planning completion               | Scope decision, phase decomposition, detailed design per phase, instructions file updates | roadmap.md, PLAN.md, phase files, instructions files                                                                           |
+| **Planning branch session**    | Single-phase design task                                 | Focused design work for a complex phase, isolated from the full planning scope            | PLAN.md (overview only), target phase file, relevant instructions files                                                        |
+| **Design refinement session**  | Single deferred-design phase before implementation       | Finalize deferred design from predecessor implementation evidence; update the phase file  | PLAN.md (overview only), target phase file, predecessor phase artifacts, relevant instructions files, current repository state |
+| **Development trunk session**  | Entire implementation cycle (all phases + release tasks) | Pre-execution checks, starting prompt creation, result review, release tasks              | PLAN.md, all phase files, design refinement summaries, branch session summaries                                                |
+| **Development branch session** | Single phase implementation                              | Implementation, testing, verification                                                     | PLAN.md (overview only), target phase file, relevant instructions files, starting prompt                                       |
 
 ### Context boundaries
 
 - A **branch session** (planning or development) should receive only the phase file it is working on, plus release-level context from PLAN.md. Other phase files are excluded to minimize noise.
+- A **design refinement session** should receive only the target deferred-design phase, the minimum predecessor artifacts needed to resolve the deferred decisions, and release-level context from PLAN.md.
 - The **trunk session** holds the cross-phase view and is responsible for detecting inter-phase impacts.
 
 ### Context handoff between sessions
 
 - **Planning → Development trunk**: PLAN.md and phase files are the handoff artifacts. No copy-paste or verbal summary is needed — the documents are the contract.
 - **Planning session → Planning branch session**: Planning session produces a starting prompt for the target phase design task.
-- **Planning branch session → Planning session**: Branch session performs the detailed design work, writes the resulting design directly into the target phase file, and produces a structured Planning Branch Session Summary (see format below). The summary is a handoff artifact for unresolved questions, dependency notes, non-obvious rationale, completion signaling, and other planning observations that should be shared with the planning session but do not belong in the phase file itself. Human copies the summary into the planning session. The planning session then reviews the updated phase file and summary together, checks for cross-phase and plan-level consistency, and finalizes the phase design and any affected instructions files as needed.
+- **Planning branch session → Planning session**: Branch session writes the detailed design directly into the target phase file and returns a structured Planning Branch Session Summary for unresolved questions, dependency notes, rationale, completion signaling, and other planning observations that do not belong in the phase file itself. Human copies the summary into the planning session. The planning session then reviews the updated phase file and summary together, checks for cross-phase and plan-level consistency, and finalizes the phase design and any affected instructions files as needed.
+- **Development trunk → Design refinement session**: When a phase is marked as deferred design and its refinement trigger is satisfied, the trunk session produces a starting prompt for the refinement session.
+- **Design refinement session → Development trunk**: Refinement session resolves the deferred design directly in the phase file, updates any affected instructions files, and returns a structured Design Refinement Session Summary.
 - **Development branch → Development trunk**: Branch session produces a structured summary (see Branch Session Summary below). Human copies the summary into the trunk session.
 - **Development trunk → Development branch**: Trunk session produces a starting prompt (see Starting Prompt below).
 
@@ -365,11 +391,11 @@ Phases are designed one at a time, in order, using the session mode selected in 
 
 **If `planning branch session` was selected:**
 
-- The planning session LLM creates a starting prompt for the branch session, analogous to Stage 2b but for design work rather than implementation.
+- The planning session LLM creates a starting prompt for the branch session, analogous to Stage 2c but for design work rather than implementation.
 - The starting prompt includes the target phase identity, relevant design references, and the specific design questions or ambiguity to resolve.
 - The planning branch session performs the detailed design work and writes the resulting design directly into the target phase file.
 - The planning branch session must return a **Planning Branch Session Summary** in the standard format defined below.
-- That summary is not a replacement for the phase file and must not be used to carry the detailed design itself; it is a supplemental handoff for unresolved questions, dependency notes, non-obvious rationale, completion signaling, and other planning observations that should be carried back to the planning session because they do not fit the phase file format.
+- That summary is supplemental only. The phase file remains the canonical design artifact, and the summary carries only unresolved questions, dependency notes, rationale, completion signaling, and other observations that do not belong in the phase file.
 - The human provides that summary to the planning session before 1e-2 is treated as complete.
 - The planning session then reviews the updated phase file and summary together, checks for plan-level consistency and cross-phase impact, and finalizes the phase design and any affected instructions files before moving to 1e-3.
 
@@ -382,10 +408,22 @@ Phases are designed one at a time, in order, using the session mode selected in 
 For each phase, the key design activities are:
 
 - **Re-evaluate the item**: Before detailed design, confirm the item is still worth implementing and the approach is sound. Roadmap entries may be rough ideas — some may not survive scrutiny.
-- **Resolve all design decisions**: Write them as finished choices, not open questions. Every missing decision is a potential mid-implementation pause.
+- **Resolve all design decisions**: Write them as finished choices, not open questions, unless a bounded subset explicitly qualifies for deferred design. Every uncontrolled missing decision is a potential mid-implementation pause.
 - **Consider cross-phase impact**: Phase N is implemented on top of phases 1..(N-1). If earlier phases modify files or interfaces that phase N touches, account for that in Design Decisions and Target Files.
 - **Update instructions files**: If the phase changes behavior covered by an instructions file, update the spec during planning — not during implementation.
 - **Adjust phase ordering**: If design work reveals a better sequence, update the order now.
+
+**Deferred design during Stage 1e-2**:
+
+If a phase meets the deferred-design criteria defined above, the planning session may mark it as deferred design instead of forcing speculative Design Decisions.
+
+When doing so:
+
+- mark the phase's design maturity as `Deferred design` in the phase file
+- fill the Deferred Design Controls section completely
+- resolve every decision that can already be fixed and defer only the bounded subset that depends on predecessor implementation evidence
+- name the predecessor phase or artifact whose completion triggers refinement
+- do not treat the phase as implementation-ready; Stage 2 must run a dedicated design refinement session before the normal pre-execution check
 
 **Completion condition:**
 
@@ -431,13 +469,14 @@ The planning session must not merge 1e-1, 1e-2, and 1e-3 into a single combined 
 
 Planning is complete when all of the following are true:
 
-- Every phase file has all sections filled (per phase-template "When to Fill Each Section").
-- All Design Decisions are in finished form — no questions, TBDs, or open alternatives.
+- Every phase file declares its design maturity and has all sections filled as required by that state (per phase-template "When to Fill Each Section").
+- Every implementation-ready phase has all Design Decisions in finished form — no questions, TBDs, or open alternatives.
+- Every deferred-design phase has its Deferred Design Controls section fully filled, with the predecessor dependency, refinement trigger, fixed constraints, and deferred decision set stated explicitly.
 - Instructions files are consistent with the plan content.
 - Cross-phase dependencies are identified and reflected in phase ordering.
 - Each selected roadmap item has a `Release target: vX.Y.Z` annotation in `roadmap.md`.
 
-Phase files created during planning are working artifacts for the current release only. They should remain stable during implementation, but they are not intended to be retained indefinitely after the release is completed.
+Phase files created during planning are working artifacts for the current release only. They should remain stable during implementation, except when a deferred-design phase is intentionally reopened through the Stage 2 refinement flow defined below. They are not intended to be retained indefinitely after the release is completed.
 
 After these criteria are satisfied, the planning session must summarize the completed planning state and ask the human for explicit confirmation before treating planning as complete or handing off to the development trunk session. It must not automatically transition to implementation.
 
@@ -462,17 +501,44 @@ After these criteria are satisfied, the planning session must summarize the comp
 
 ### Stage 2: Implementation Cycle
 
-**Session**: Development trunk session (orchestration) + development branch sessions (per phase).
+**Session**: Development trunk session (orchestration) + design refinement sessions (conditional) + development branch sessions (per phase).
 
 Repeat the following for each phase:
 
-#### 2a. Pre-execution check (trunk session)
+#### 2a. Deferred-design refinement (conditional)
+
+If the current phase is marked as `Deferred design`, the trunk session must run the following refinement flow before the normal pre-execution check. Otherwise skip this step.
+
+1. **Trigger check**: Confirm that the predecessor phase implementation, review, and any other refinement-trigger conditions named in the phase file are complete.
+2. **Prompt creation**: Create a starting prompt for a dedicated design refinement session.
+3. **Design refinement**: The refinement session reads the target phase file, relevant predecessor artifacts, and the current repository state; then it resolves the deferred decisions directly in the phase file and updates any affected instructions files.
+4. **No implementation**: The refinement session does not implement code. Its responsibility ends when the phase file becomes implementation-ready or when it reports that the design still cannot be finalized.
+5. **Trunk review**: Review the updated phase file and the Design Refinement Session Summary. If the phase is now implementation-ready, continue to 2b. Otherwise revise the phase plan or escalate to the human.
+
+**Required prompt after refinement:**
+
+- "Deferred-design refinement for Phase N is complete. Choose next action: (1) run the pre-execution check for Phase N, (2) revise Phase N plan, (3) stop."
+
+**Valid responses:**
+
+- `1`
+- `2`
+- `3`
+- `run the pre-execution check for Phase N`
+- `revise Phase N plan`
+- `stop`
+
+**Completion condition:**
+
+- Stage 2a for the phase is complete only when either the step is skipped because the phase is already implementation-ready, or one valid next-action response is received after refinement.
+
+#### 2b. Pre-execution check (trunk session)
 
 Before starting a branch session, the trunk session performs the following checks:
 
 1. **Build health**: The project's build, test, and format-check commands all pass. (The specific commands are defined in the project's `copilot-instructions.md` or `package.json`, not here.)
 2. **Prior-phase impact**: If the previous branch session summary contains "Deviations from Plan" or "Observations for Subsequent Phases", evaluate whether the current phase's Design Decisions or Target Files need adjustment.
-3. **Phase file completeness**: All sections of the current phase file are filled. If Design Decisions contain gaps, escalate to human — do not proceed to implementation.
+3. **Phase file completeness**: The current phase must be marked as `Implementation-ready`, and all sections required by that state must be filled. If Design Decisions contain gaps, or if the phase is still marked as `Deferred design`, do not proceed to implementation.
 4. **Phase sizing sanity check**: Confirm that the current phase still appears executable within one branch session at a reasonable level of scope and reviewability. If not, revise the phase plan before starting implementation.
 5. **If all checks pass**: Create the starting prompt for the branch session.
 
@@ -491,7 +557,7 @@ Before starting a branch session, the trunk session performs the following check
 
 **Completion condition:**
 
-- Stage 2a for the phase is not complete until one valid next-action response is received.
+- Stage 2b for the phase is not complete until one valid next-action response is received.
 
 ##### When a phase does not fit in one branch session
 
@@ -511,19 +577,19 @@ When such a summary is returned, the trunk session decides which of the followin
 
 A branch session may detect that one-session completion is no longer appropriate, but it must not unilaterally redefine phase boundaries. If the correct response is unclear, escalate to the human.
 
-#### 2b. Starting prompt creation (trunk session)
+#### 2c. Starting prompt creation (trunk session)
 
 The starting prompt must include:
 
 - **File references**: PLAN.md (for release-level context) and the target phase file.
 - **Phase identity**: Phase number, title, and summary line — so the branch session establishes context immediately.
-- **Carry-forward items**: Any observations or deviations from the previous phase that affect this phase. Omit if none.
+- **Carry-forward items**: Any observations, deviations, or refinement follow-ups from earlier work that affect this phase. Omit if none.
 - **Completion instruction**: "When implementation is complete, output a Branch Session Summary in the standard format."
 - **Verification reminder**: "Run all automated verification commands and include results in the summary."
 
 The starting prompt should be self-contained: a branch session that reads only the starting prompt and the referenced files should be able to execute the phase without additional guidance.
 
-#### 2c. Implementation (branch session)
+#### 2d. Implementation (branch session)
 
 The branch session:
 
@@ -545,11 +611,11 @@ The branch session:
 - Small deviations (e.g. a test helper name, an import order, or similarly local naming/organization choices) are acceptable. Record them in the summary if they are relevant to later review.
 - If the phase cannot be completed, set the summary status to `blocked` and describe the blocker.
 
-#### 2d. Summary handoff (branch → trunk)
+#### 2e. Summary handoff (branch → trunk)
 
 The branch session outputs a summary. Human copies it into the trunk session.
 
-#### 2e. Result review (trunk session)
+#### 2f. Result review (trunk session)
 
 The trunk session:
 
@@ -579,7 +645,7 @@ The trunk session must not automatically continue past a phase boundary. At each
 
 **Completion condition:**
 
-- Stage 2e for the phase is not complete until one valid next-action response is received.
+- Stage 2f for the phase is not complete until one valid next-action response is received.
 
 ---
 
@@ -622,7 +688,7 @@ Every planning branch session must produce a summary in this format:
 ### Phase: {N} — {title}
 ### Status: completed | partially-completed | blocked
 ### Notes for Planning Session
-- (planning notes that should be shared back with the planning session but do not belong in the phase file itself; use "None" if there is nothing additional to report)
+- (planning notes that should be shared back with the planning session but do not belong in the phase file; use "None" if there is nothing additional to report)
 ### Open Questions for Human
 - (only genuinely unresolved decisions that require human judgment; "None" if everything was resolved)
 ### Ordering / Dependency Notes
@@ -632,7 +698,29 @@ Every planning branch session must produce a summary in this format:
 ### Non-Obvious Rationale
 - (brief reasoning that may help the planning session understand why a recommendation was made)
 ### Risks / Follow-ups
-- (planning risks, validation needs, or items that should be checked before implementation; "None" if nothing to report)
+- (planning risks, validation needs, or other items to check before implementation; "None" if nothing to report)
+```
+
+---
+
+## Design Refinement Session Summary Format
+
+Every design refinement session must produce a summary in this format:
+
+```text
+## Design Refinement Session Summary
+### Phase: {N} — {title}
+### Status: completed | partially-completed | blocked
+### Design Decisions Finalized
+- (the deferred decisions that were resolved in this session)
+### Phase File Updates
+- (sections updated in the phase file; use "None" only if blocked before updates were made)
+### Instructions Files Impact
+- (instruction/spec files updated, or confirmation that none were affected)
+### Open Questions for Human
+- (only genuinely unresolved decisions that still require human judgment; "None" if the phase is now implementation-ready)
+### Risks / Follow-ups
+- (remaining design risks or review items the trunk session should check before implementation; "None" if nothing additional remains)
 ```
 
 ---
@@ -668,28 +756,29 @@ Every development branch session must produce a summary in this format:
 
 - Propose scope items with rationale (synergy, risk, version semantics).
 - Flag design decisions that are still in question form or contain ambiguity.
+- Decide whether each phase is implementation-ready during Stage 1 or should be explicitly marked as deferred design under the criteria defined above.
 - Verify cross-phase consistency: if phase N modifies an interface, check that phase N+1's Target Files account for it.
 - Confirm instructions files are updated when behavior specs change.
 - At planning completion, verify all completion criteria (Stage 1f) are met.
 - Treat workflow gates as step-completion conditions, not as optional reminders.
 - Enforce the valid-response lists for 1c, 1d, 1e-1, 1e-3, and 1f exactly as written; never infer authorization from generic proceed/continue language.
-- When using a planning branch session, treat the phase file as the canonical design artifact and write the detailed design directly into that file during the branch session.
-- The Planning Branch Session Summary should not duplicate the detailed design. It should capture only the unresolved questions, dependency notes, rationale, completion signaling, and other planning observations that need to be carried back to the planning session because they do not belong in the phase file.
+- When using a planning branch session, keep the phase file as the canonical design artifact and use the Planning Branch Session Summary only for information that does not belong in the phase file.
 - After completing each gated planning step, stop at the gate and wait for the human's explicit response before moving on.
 - When all planning-completion criteria are satisfied, ask the human to confirm that planning is complete before handing off to implementation.
 
 #### In trunk sessions
 
-- Execute the pre-execution checklist (Stage 2a) completely — do not skip items.
-- Create starting prompts that are self-contained (Stage 2b).
-- When reviewing branch summaries, explicitly check "Deviations" and "Observations" sections for downstream impact.
+- If the current phase is marked as deferred design, run the refinement flow (Stage 2a) before any implementation work begins.
+- Execute the pre-execution checklist (Stage 2b) completely — do not skip items.
+- Create starting prompts that are self-contained (Stage 2c).
+- Review refinement and branch summaries for remaining risks, deviations, and downstream impact before authorizing the next step.
 - If the human does not request a pre-execution check before starting a branch session, remind them.
 - After reviewing each branch-session result, summarize the current state and stop at the gate before advancing across a phase boundary.
 - Before moving from phase execution to Stage 3 release-completion work, ask the human to confirm that implementation-stage work is complete.
 
 #### In branch sessions
 
-- Treat the phase file as the implementation contract.
+- Treat the phase file as the implementation contract, and do not implement from a phase file that is still marked as `Deferred design`.
 - Do not add features, refactoring, or improvements beyond what the phase file specifies.
 - Produce the Branch Session Summary in the exact format specified — do not omit sections.
 - If a Design Decision appears to be incorrect based on implementation evidence, report it as a deviation rather than silently changing approach.
@@ -699,7 +788,7 @@ Every development branch session must produce a summary in this format:
 
 - Provide release intent (Stage 1a).
 - Make final scope decisions when LLM proposals conflict or exceed capacity.
-- Review and approve phase designs before implementation begins.
+- Review and approve phase designs before implementation begins, including deferred-design refinement results when applicable.
 - Copy branch session summaries to trunk session (context handoff).
 - Perform the actual release operation (Stage 3).
 - Make the final judgment when a Design Decision is contested during implementation.
@@ -725,6 +814,7 @@ Every development branch session must produce a summary in this format:
 
 ### When to escalate to the trunk session
 
+- The current phase is still marked as `Deferred design` and requires refinement before implementation.
 - The phase cannot be completed (status: `blocked`).
 - A deviation is significant enough that downstream phases may need redesign.
 - An issue found in a prior phase's implementation that was not caught during its review.
