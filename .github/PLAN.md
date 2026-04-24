@@ -38,7 +38,7 @@ The primary focus is the roadmap item `Architecture: Fact-based extraction pipel
 ### Phase 1: Fact Vocabulary and Compatibility Facade
 
 - **File**: [`plans/phase-1.md`](plans/phase-1.md)
-- **Status**: Planned
+- **Status**: Completed
 
 ### Phase 2: Commit Traversal Stage Extraction
 

@@ -6,7 +6,7 @@ import { defineCommand, runMain } from "citty";
 
 import { cmdDefinition, parseArgs } from "./cli/index.js";
 import { Extractor } from "./core/index.js";
-import type { Reporter, StateFile, StateStore } from "./core/index.js";
+import type { Reporter, CheckpointStore, ExtractionCheckpoint } from "./core/index.js";
 import { GitAdapterError } from "./git/index.js";
 import { IsomorphicGitAdapter } from "./git/index.js";
 
@@ -36,17 +36,17 @@ const noopReporter: Reporter = {
   done(_recordsWritten: number): void {},
 };
 
-class NodeStateStore implements StateStore {
+class NodeCheckpointStore implements CheckpointStore {
   private readonly stateFilePath: string;
   constructor(stateFilePath: string) {
     this.stateFilePath = stateFilePath;
   }
 
-  async read(): Promise<StateFile | null> {
+  async read(): Promise<ExtractionCheckpoint | null> {
     const { readFile } = await import("node:fs/promises");
     try {
       const raw = await readFile(this.stateFilePath, "utf8");
-      return JSON.parse(raw) as StateFile;
+      return JSON.parse(raw) as ExtractionCheckpoint;
     } catch (err) {
       if (
         err instanceof Error &&
@@ -59,7 +59,7 @@ class NodeStateStore implements StateStore {
     }
   }
 
-  async write(state: StateFile): Promise<void> {
+  async write(state: ExtractionCheckpoint): Promise<void> {
     const tmpPath = `${this.stateFilePath}.tmp`;
     await writeFile(tmpPath, JSON.stringify(state, null, 2), "utf8");
     await rename(tmpPath, this.stateFilePath);
@@ -86,7 +86,7 @@ const main = defineCommand({
       const { quiet } = parsed;
       const reporter = quiet ? noopReporter : stderrReporter;
       const stateStore = parsed.stateFilePath
-        ? new NodeStateStore(parsed.stateFilePath)
+        ? new NodeCheckpointStore(parsed.stateFilePath)
         : undefined;
       const extractor = new Extractor(
         parsed,

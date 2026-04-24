@@ -5,13 +5,16 @@ import { GitAdapterError } from "../git/index.js";
 import { OutputWriter, formatSessionTimestamp, splitMessage, toISO8601 } from "../output/index.js";
 import type { OutputCommit, OutputFileRecord } from "../output/index.js";
 import type {
+  BranchCheckpoint,
+  CheckpointStore,
+  CommitFact,
   CommitHash,
-  ExtractorConfig,
+  ExtractionCheckpoint,
   ExtractionResult,
+  ExtractorConfig,
+  FileChangeFact,
   MonotonicClock,
   Reporter,
-  StateFile,
-  StateStore,
   WallClock,
 } from "./types.js";
 import { assertNever, isCommitHash } from "./types.js";
@@ -23,51 +26,6 @@ function deriveRepoName(remoteUrl: string | null, repoPath: string): string {
     return stripped || basename(repoPath);
   }
   return basename(repoPath);
-}
-
-function mapToOutputCommit(
-  commit: RawCommit,
-  repoName: string,
-  remoteUrl: string | null,
-): OutputCommit {
-  const { subject, body } = splitMessage(commit.message);
-  return {
-    oid: commit.oid,
-    subject,
-    body,
-    author: {
-      name: commit.author.name,
-      email: commit.author.email,
-      timestamp: toISO8601(commit.author.timestamp, commit.author.timezoneOffset),
-    },
-    committer: {
-      name: commit.committer.name,
-      email: commit.committer.email,
-      timestamp: toISO8601(commit.committer.timestamp, commit.committer.timezoneOffset),
-    },
-    parents: commit.parents,
-    repository: {
-      name: repoName,
-      url: remoteUrl,
-    },
-  };
-}
-
-function mapToOutputFileRecord(
-  commit: RawCommit,
-  fileChange: FileChange,
-  repoName: string,
-  remoteUrl: string | null,
-): OutputFileRecord {
-  return {
-    ...mapToOutputCommit(commit, repoName, remoteUrl),
-    file: {
-      path: fileChange.path,
-      status: fileChange.status,
-      additions: fileChange.additions,
-      deletions: fileChange.deletions,
-    },
-  };
 }
 
 interface BranchRunContext {
@@ -88,14 +46,14 @@ export class Extractor {
   private readonly reporter: Reporter;
   private readonly wallNow: WallClock;
   private readonly monotonicNow: MonotonicClock;
-  private readonly stateStore?: StateStore;
+  private readonly stateStore?: CheckpointStore;
   constructor(
     config: ExtractorConfig,
     adapter: GitAdapter,
     reporter: Reporter,
     wallNow: WallClock,
     monotonicNow: MonotonicClock,
-    stateStore?: StateStore,
+    stateStore?: CheckpointStore,
   ) {
     this.config = config;
     this.adapter = adapter;
@@ -105,11 +63,83 @@ export class Extractor {
     this.stateStore = stateStore;
   }
 
+  // --- Fact creation helpers (anticipate future CommitTraversalExtractor split) ---
+
+  private toCommitFact(commit: RawCommit, repoName: string, remoteUrl: string | null): CommitFact {
+    return {
+      oid: commit.oid,
+      message: commit.message,
+      author: {
+        name: commit.author.name,
+        email: commit.author.email,
+        timestamp: commit.author.timestamp,
+        timezoneOffset: commit.author.timezoneOffset,
+      },
+      committer: {
+        name: commit.committer.name,
+        email: commit.committer.email,
+        timestamp: commit.committer.timestamp,
+        timezoneOffset: commit.committer.timezoneOffset,
+      },
+      parents: commit.parents,
+      repository: { name: repoName, url: remoteUrl },
+    };
+  }
+
+  private toFileChangeFact(fact: CommitFact, fileChange: FileChange): FileChangeFact {
+    return {
+      commit: fact,
+      file: {
+        path: fileChange.path,
+        status: fileChange.status,
+        additions: fileChange.additions,
+        deletions: fileChange.deletions,
+      },
+    };
+  }
+
+  // --- Projection helpers (anticipate future CommitRecordProjector / FileChangeRecordProjector split) ---
+
+  private projectCommitFact(fact: CommitFact): OutputCommit {
+    const { subject, body } = splitMessage(fact.message);
+    return {
+      oid: fact.oid,
+      subject,
+      body,
+      author: {
+        name: fact.author.name,
+        email: fact.author.email,
+        timestamp: toISO8601(fact.author.timestamp, fact.author.timezoneOffset),
+      },
+      committer: {
+        name: fact.committer.name,
+        email: fact.committer.email,
+        timestamp: toISO8601(fact.committer.timestamp, fact.committer.timezoneOffset),
+      },
+      parents: fact.parents,
+      repository: { name: fact.repository.name, url: fact.repository.url },
+    };
+  }
+
+  private projectFileChangeFact(fact: FileChangeFact): OutputFileRecord {
+    return {
+      ...this.projectCommitFact(fact.commit),
+      file: {
+        path: fact.file.path,
+        status: fact.file.status,
+        additions: fact.file.additions,
+        deletions: fact.file.deletions,
+      },
+    };
+  }
+
+  // --- Checkpoint helpers ---
+
   private async initializeStateMap(repoPath: string): Promise<Map<string, CommitHash>> {
     const stateMap = new Map<string, CommitHash>();
     if (this.stateStore && this.config.mode === "incremental") {
-      const stateData = await this.stateStore.read();
-      if (stateData === null) {
+      const checkpoint = await this.stateStore.read();
+      if (checkpoint === null) {
         if (this.config.onMissingState === "snapshot") {
           this.reporter.warn(
             `Warning: State file not found: ${this.config.stateFilePath}. Falling back to full snapshot extraction.`,
@@ -117,16 +147,16 @@ export class Extractor {
           // stateMap stays empty → full traversal
         }
       } else {
-        if (stateData.version !== 1) {
-          throw new Error(`Unsupported state file version: ${stateData.version}`);
+        if (checkpoint.version !== 1) {
+          throw new Error(`Unsupported state file version: ${checkpoint.version}`);
         }
-        const recordedPath = resolve(stateData.repositoryPath);
+        const recordedPath = resolve(checkpoint.repositoryPath);
         if (recordedPath !== repoPath) {
           throw new Error(
-            `State file was created for a different repository: ${stateData.repositoryPath}`,
+            `State file was created for a different repository: ${checkpoint.repositoryPath}`,
           );
         }
-        for (const entry of stateData.branches) {
+        for (const entry of checkpoint.branches) {
           if (!isCommitHash(entry.lastCommitHash)) {
             throw new Error(
               `Invalid commit hash in state file for branch "${entry.name}": ${entry.lastCommitHash}`,
@@ -194,8 +224,9 @@ export class Extractor {
           return;
         }
       }
+      const fact = this.toCommitFact(commit, ctx.repoName, ctx.remoteUrl);
       if (this.config.outputMode === "commit") {
-        await ctx.writer.write(mapToOutputCommit(commit, ctx.repoName, ctx.remoteUrl));
+        await ctx.writer.write(this.projectCommitFact(fact));
         ctx.recordsRef.count++;
         this.reporter.progress(ctx.recordsRef.count);
       } else {
@@ -203,7 +234,7 @@ export class Extractor {
         const fileChanges = await this.adapter.getFileChanges(ctx.repoPath, commit.oid, parentOid);
         for (const fileChange of fileChanges) {
           await ctx.writer.write(
-            mapToOutputFileRecord(commit, fileChange, ctx.repoName, ctx.remoteUrl),
+            this.projectFileChangeFact(this.toFileChangeFact(fact, fileChange)),
           );
           ctx.recordsRef.count++;
           this.reporter.progress(ctx.recordsRef.count);
@@ -286,18 +317,17 @@ export class Extractor {
       await writer.close();
     }
 
-    // Write state file atomically — only reached on success (no exception)
+    // Write checkpoint atomically — only reached on success (no exception)
     if (this.stateStore && branchHeads.size > 0) {
-      const newState: StateFile = {
+      const newCheckpoint: ExtractionCheckpoint = {
         version: 1,
         generatedAt: sessionTs.toISOString(),
         repositoryPath: repoPath,
-        branches: Array.from(branchHeads.entries()).map(([name, lastCommitHash]) => ({
-          name,
-          lastCommitHash,
-        })),
+        branches: Array.from(branchHeads.entries()).map(
+          ([name, lastCommitHash]): BranchCheckpoint => ({ name, lastCommitHash }),
+        ),
       };
-      await this.stateStore.write(newState);
+      await this.stateStore.write(newCheckpoint);
     }
 
     return {

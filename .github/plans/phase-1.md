@@ -5,8 +5,8 @@ _Introduce the new internal fact/checkpoint vocabulary inside Core and keep `Ext
 #### Status
 
 - [x] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] In progress
+- [x] Completed
 
 #### Design Maturity
 

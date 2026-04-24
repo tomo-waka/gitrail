@@ -14,6 +14,40 @@ export interface PersonIdentity {
   readonly email: string;
 }
 
+/** Core-owned intermediate representation of a single commit, output-format-agnostic. */
+export interface CommitFact {
+  readonly oid: string;
+  readonly message: string;
+  readonly author: {
+    readonly name: string;
+    readonly email: string;
+    readonly timestamp: number; // Unix seconds
+    readonly timezoneOffset: number; // minutes from UTC (isomorphic-git convention: negated)
+  };
+  readonly committer: {
+    readonly name: string;
+    readonly email: string;
+    readonly timestamp: number;
+    readonly timezoneOffset: number;
+  };
+  readonly parents: readonly string[];
+  readonly repository: {
+    readonly name: string;
+    readonly url: string | null;
+  };
+}
+
+/** Core-owned intermediate representation of a single file change within a commit. */
+export interface FileChangeFact {
+  readonly commit: CommitFact;
+  readonly file: {
+    readonly path: string;
+    readonly status: "added" | "modified" | "deleted";
+    readonly additions: number | null;
+    readonly deletions: number | null;
+  };
+}
+
 export interface RotationConfig {
   readonly maxLines?: number;
   readonly maxBytes?: number;
@@ -42,25 +76,30 @@ export interface Reporter {
   done(recordsWritten: number): void;
 }
 
-export interface StateStore {
-  read(): Promise<StateFile | null>;
-  write(state: StateFile): Promise<void>;
+export interface CheckpointStore {
+  read(): Promise<ExtractionCheckpoint | null>;
+  write(state: ExtractionCheckpoint): Promise<void>;
 }
 
 export type WallClock = () => Date;
 export type MonotonicClock = () => number;
 
-export interface StateBranchEntry {
+export interface BranchCheckpoint {
   readonly name: string;
   readonly lastCommitHash: CommitHash;
 }
 
-export interface StateFile {
+export interface ExtractionCheckpoint {
   readonly version: 1;
   readonly generatedAt: string;
   readonly repositoryPath: string;
-  readonly branches: readonly StateBranchEntry[];
+  readonly branches: readonly BranchCheckpoint[];
 }
+
+// Compatibility aliases — kept until Phase 4 cleanup
+export type StateBranchEntry = BranchCheckpoint;
+export type StateFile = ExtractionCheckpoint;
+export type StateStore = CheckpointStore;
 
 export interface ExtractionResult {
   readonly recordsWritten: number;

@@ -9,11 +9,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Extractor } from "../../src/core/extractor.js";
 import type {
+  BranchCheckpoint,
+  CheckpointStore,
+  CommitFact,
   CommitHash,
+  ExtractionCheckpoint,
   ExtractorConfig,
+  FileChangeFact,
   Reporter,
   StateFile,
   StateStore,
+  StateBranchEntry,
 } from "../../src/core/index.js";
 import { GitAdapterError } from "../../src/git/index.js";
 import type { FileChange, GitAdapter, RawCommit } from "../../src/git/index.js";
@@ -1130,6 +1136,139 @@ describe("Extractor", () => {
       const file2Lines = (await readFile(files[1]!, "utf8")).split("\n").filter(Boolean);
       expect(file1Lines).toHaveLength(2);
       expect(file2Lines).toHaveLength(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Fact vocabulary and checkpoint seam
+  // ---------------------------------------------------------------------------
+
+  describe("Fact vocabulary and checkpoint seam", () => {
+    it("commit-mode: CommitFact projection preserves all output fields", async () => {
+      const { fs, init, addCommit } = makeRepo("https://github.com/org/my-repo.git");
+      await init();
+      const sha = await addCommit("a.txt", "content", "first commit\n\nBody text", 1000);
+
+      const adapter = new IsomorphicGitAdapter(fs);
+      const config = makeConfig({ outputDir: tmpDir });
+      await makeExtractor(config, adapter).run();
+
+      const commits = await readFirstJsonlFile(tmpDir);
+      expect(commits).toHaveLength(1);
+      const commit = commits[0]!;
+
+      // All fields expected from CommitFact → OutputCommit projection
+      expect(commit.oid).toBe(sha);
+      expect(commit.subject).toBe("first commit");
+      expect(commit.body).toBe("Body text");
+      expect(commit.repository.name).toBe("my-repo");
+      expect(commit.repository.url).toBe("https://github.com/org/my-repo.git");
+      expect(commit.parents).toEqual([]);
+      expect(typeof commit.author.timestamp).toBe("string");
+      expect(commit.author.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+
+    it("file-mode: FileChangeFact projection preserves all output fields", async () => {
+      const sha1 = "a".repeat(40);
+      const commits = [makeRawCommit(sha1, "initial\n\nFirst file added", [], 1000)];
+      const fileChanges = new Map<string, readonly FileChange[]>([
+        [sha1, [{ path: "src/index.ts", status: "added", additions: 42, deletions: 0 }]],
+      ]);
+      const adapter = makeFakeGitAdapter(commits, fileChanges, "https://github.com/org/repo.git");
+      const config = makeConfig({ outputDir: tmpDir, outputMode: "file" });
+      await new Extractor(
+        config,
+        adapter,
+        makeReporter(),
+        () => new Date(),
+        () => 0,
+      ).run();
+
+      const rawContent = await readFile((await findJsonlFiles(tmpDir))[0]!, "utf8");
+      const record = JSON.parse(rawContent.trim()) as OutputCommit & {
+        file: { path: string; status: string; additions: number; deletions: number };
+      };
+      // Commit fields from CommitFact projection
+      expect(record.oid).toBe(sha1);
+      expect(record.subject).toBe("initial");
+      expect(record.body).toBe("First file added");
+      expect(record.repository.name).toBe("repo");
+      expect(record.repository.url).toBe("https://github.com/org/repo.git");
+      // File fields from FileChangeFact projection
+      expect(record.file.path).toBe("src/index.ts");
+      expect(record.file.status).toBe("added");
+      expect(record.file.additions).toBe(42);
+      expect(record.file.deletions).toBe(0);
+    });
+
+    it("ExtractionCheckpoint is interchangeable with StateFile compatibility alias", async () => {
+      const { fs, init, addCommit } = makeRepo();
+      await init();
+      await addCommit("a.txt", "v1", "commit 1", 1000);
+
+      const stateFilePath = join(tmpDir, "gitrail-state.json");
+      const adapter = new IsomorphicGitAdapter(fs);
+
+      await makeExtractor(
+        makeConfig({ outputDir: tmpDir, stateFilePath, mode: "snapshot" }),
+        adapter,
+      ).run();
+
+      const raw = await readFile(stateFilePath, "utf8");
+      const checkpoint: ExtractionCheckpoint = JSON.parse(raw) as ExtractionCheckpoint;
+
+      // ExtractionCheckpoint and StateFile are the same type via alias
+      const asStateFile: StateFile = checkpoint;
+      expect(asStateFile.version).toBe(1);
+      expect(asStateFile.repositoryPath).toBe(resolve("/"));
+      expect(asStateFile.branches).toHaveLength(1);
+
+      const branch: BranchCheckpoint = checkpoint.branches[0]!;
+      const asBranchEntry: StateBranchEntry = branch;
+      expect(asBranchEntry.name).toBe("main");
+      expect(typeof asBranchEntry.lastCommitHash).toBe("string");
+    });
+
+    it("CheckpointStore is interchangeable with StateStore compatibility alias", async () => {
+      const stateFilePath = join(tmpDir, "gitrail-state.json");
+
+      // makeFileStateStore returns StateStore; assert it satisfies CheckpointStore too
+      const asCheckpointStore: CheckpointStore = makeFileStateStore(stateFilePath);
+      const asStateStore: StateStore = asCheckpointStore;
+      expect(asStateStore).toBeDefined();
+
+      // Round-trip an ExtractionCheckpoint through the store
+      const checkpoint: ExtractionCheckpoint = {
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        repositoryPath: resolve("/"),
+        branches: [{ name: "main", lastCommitHash: "a".repeat(40) as CommitHash }],
+      };
+      await asCheckpointStore.write(checkpoint);
+      const read = await asCheckpointStore.read();
+      expect(read).not.toBeNull();
+      expect(read!.version).toBe(1);
+      expect(read!.branches[0]!.name).toBe("main");
+    });
+
+    it("CommitFact and FileChangeFact types are correctly shaped (compile-time seam check)", () => {
+      // This test exists to ensure the types are importable and structurally correct.
+      const fact: CommitFact = {
+        oid: "a".repeat(40),
+        message: "test commit\n",
+        author: { name: "A", email: "a@x.com", timestamp: 1000, timezoneOffset: 0 },
+        committer: { name: "A", email: "a@x.com", timestamp: 1000, timezoneOffset: 0 },
+        parents: [],
+        repository: { name: "repo", url: null },
+      };
+      const fileFact: FileChangeFact = {
+        commit: fact,
+        file: { path: "a.txt", status: "added", additions: 1, deletions: 0 },
+      };
+      expect(fact.oid).toHaveLength(40);
+      expect(fact.repository.url).toBeNull();
+      expect(fileFact.file.status).toBe("added");
+      expect(fileFact.commit).toBe(fact);
     });
   });
 });
