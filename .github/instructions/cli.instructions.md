@@ -87,8 +87,61 @@ Both may be specified simultaneously — rotation triggers when **either** thres
 
 | Parameter   | Alias | Type    | Default | Description                                                                                                                         |
 | ----------- | ----- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `--quiet`   | `-q`  | boolean | `false` | Suppress progress, summary, and profile output on stderr                                                                            |
+| `--quiet`   | `-q`  | boolean | `false` | Suppress progress, summary, and profile output on stderr. Warnings and errors are still emitted.                                    |
 | `--profile` |       | boolean | `false` | Print per-stage timing information as an aligned multi-line block to stderr after a successful extraction. Suppressed by `--quiet`. |
+
+### Successful-Run Stderr Contract
+
+When `--quiet` is not set and extraction succeeds, stderr output is fixed as follows:
+
+1. Zero or more warning lines, if applicable.
+2. A three-stage progress history:
+
+- `Preparing extraction`
+- `Extracting history`
+- `Finalizing output`
+
+3. An aligned completion summary block.
+4. When `--profile` is set, an aligned profile block after a single blank line.
+
+Only the currently active stage line may update in place. Completed stage lines remain visible.
+Every active stage must emit a liveness signal even when semantic counters are not changing. Phase
+7's chosen liveness signal is `spinner + elapsed`, with a silence budget of at most `1s` between
+visible updates while a stage is actively running.
+
+The active stage line updates at most once per second during steady-state work, plus immediate
+updates on stage transitions, semantic progress changes, warning recovery redraws, and final
+completion.
+
+`Preparing extraction` and `Finalizing output` therefore also refresh while active, even though
+they do not expose quantitative counters.
+
+The `Extracting history` line includes these fields, in this order:
+
+- spinner frame and stage label
+- `branch <current>/<total>`
+- `commits traversed`
+- `records written`
+- humanized `bytes written`
+- `elapsed`
+
+The `Preparing extraction` and `Finalizing output` lines show the spinner, stage label, and
+elapsed time while active.
+
+The default completion summary block uses this field order:
+
+- `Records written`
+- `Commits traversed`
+- `Files created`
+- `Bytes written`
+- `Elapsed time`
+- `Branches`
+
+The default summary remains distinct from profiling output. Per-stage timings stay exclusive to
+`--profile` and are not promoted into the normal successful-run summary.
+
+If a warning interrupts an in-place progress line, the warning is printed on its own line and the
+active stage line is then redrawn.
 
 ---
 
