@@ -211,6 +211,14 @@ Five session types are used throughout a release cycle. Each has a defined lifes
 
 ### Context handoff between sessions
 
+When a session produces a handoff artifact that the human will copy into another session as chat content, output the handoff body itself as the entire assistant message content.
+This keeps the message directly copy-pasteable into the next session without manual cleanup.
+
+- Do not add wrapper prose such as "Use the starting prompt below".
+- Do not surround the prompt with delimiter lines or code fences.
+- Do not append instructions outside the prompt body.
+- This rule applies to starting prompts produced for planning branch sessions, design refinement sessions, and development branch sessions, and to summaries that are intended to be copied into another session.
+
 - **Planning → Development trunk**: PLAN.md and phase files are the handoff artifacts. No copy-paste or verbal summary is needed — the documents are the contract.
 - **Planning session → Planning branch session**: Planning session produces a starting prompt for the target phase design task.
 - **Planning branch session → Planning session**: Branch session writes the detailed design directly into the target phase file and returns a structured Planning Branch Session Summary for unresolved questions, dependency notes, rationale, completion signaling, and other planning observations that do not belong in the phase file itself. Human copies the summary into the planning session. The planning session then reviews the updated phase file and summary together, checks for cross-phase and plan-level consistency, and finalizes the phase design and any affected instructions files as needed.
