@@ -12,6 +12,7 @@ export type {
   ExtractionRange,
   ExtractionResult,
   ExtractorConfig,
+  FileChangeExpander,
   FileChangeFact,
   MonotonicClock,
   PersonIdentity,
@@ -25,5 +26,11 @@ export type {
 } from "./types.js";
 export { assertNever, isCommitHash } from "./types.js";
 export { DefaultBranchTraversalPlanner } from "./branch-traversal-planner.js";
+export { CommitRecordProjector, DefaultCommitRecordProjector } from "./commit-record-projector.js";
 export { Extractor } from "./extractor.js";
 export { DefaultCommitTraversalExtractor } from "./commit-traversal-extractor.js";
+export { DefaultFileChangeExpander } from "./file-change-expander.js";
+export {
+  FileChangeRecordProjector,
+  DefaultFileChangeRecordProjector,
+} from "./file-change-record-projector.js";

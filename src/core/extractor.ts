@@ -1,20 +1,20 @@
 import { basename, resolve } from "node:path";
 
-import type { FileChange, GitAdapter } from "../git/index.js";
-import { OutputWriter, formatSessionTimestamp, splitMessage, toISO8601 } from "../output/index.js";
-import type { OutputCommit, OutputFileRecord } from "../output/index.js";
+import type { GitAdapter } from "../git/index.js";
+import { OutputWriter, formatSessionTimestamp } from "../output/index.js";
 import { DefaultBranchTraversalPlanner } from "./branch-traversal-planner.js";
+import { DefaultCommitRecordProjector } from "./commit-record-projector.js";
 import { DefaultCommitTraversalExtractor } from "./commit-traversal-extractor.js";
+import { DefaultFileChangeExpander } from "./file-change-expander.js";
+import { DefaultFileChangeRecordProjector } from "./file-change-record-projector.js";
 import type {
   BranchCheckpoint,
   BranchTraversalPlan,
   CheckpointStore,
-  CommitFact,
   CommitHash,
   ExtractionCheckpoint,
   ExtractionResult,
   ExtractorConfig,
-  FileChangeFact,
   MonotonicClock,
   Reporter,
   WallClock,
@@ -51,53 +51,6 @@ export class Extractor {
     this.wallNow = wallNow;
     this.monotonicNow = monotonicNow;
     this.stateStore = stateStore;
-  }
-
-  private toFileChangeFact(fact: CommitFact, fileChange: FileChange): FileChangeFact {
-    return {
-      commit: fact,
-      file: {
-        path: fileChange.path,
-        status: fileChange.status,
-        additions: fileChange.additions,
-        deletions: fileChange.deletions,
-      },
-    };
-  }
-
-  // --- Projection helpers (anticipate future CommitRecordProjector / FileChangeRecordProjector split) ---
-
-  private projectCommitFact(fact: CommitFact): OutputCommit {
-    const { subject, body } = splitMessage(fact.message);
-    return {
-      oid: fact.oid,
-      subject,
-      body,
-      author: {
-        name: fact.author.name,
-        email: fact.author.email,
-        timestamp: toISO8601(fact.author.timestamp, fact.author.timezoneOffset),
-      },
-      committer: {
-        name: fact.committer.name,
-        email: fact.committer.email,
-        timestamp: toISO8601(fact.committer.timestamp, fact.committer.timezoneOffset),
-      },
-      parents: fact.parents,
-      repository: { name: fact.repository.name, url: fact.repository.url },
-    };
-  }
-
-  private projectFileChangeFact(fact: FileChangeFact): OutputFileRecord {
-    return {
-      ...this.projectCommitFact(fact.commit),
-      file: {
-        path: fact.file.path,
-        status: fact.file.status,
-        additions: fact.file.additions,
-        deletions: fact.file.deletions,
-      },
-    };
   }
 
   // --- Checkpoint helpers ---
@@ -170,6 +123,9 @@ export class Extractor {
 
     const planner = new DefaultBranchTraversalPlanner(this.adapter);
     const traverser = new DefaultCommitTraversalExtractor(this.adapter);
+    const expander = new DefaultFileChangeExpander(this.adapter);
+    const commitProjector = new DefaultCommitRecordProjector(repoName, remoteUrl);
+    const fileProjector = new DefaultFileChangeRecordProjector(repoName, remoteUrl);
     const recordsRef = { count: 0 };
     const generatedAt = sessionTs.toISOString();
     let candidateCheckpoint = this.buildCandidateCheckpoint(repoPath, generatedAt, []);
@@ -198,24 +154,15 @@ export class Extractor {
         this.reporter,
       );
 
-      for await (const fact of commitFacts) {
-        if (this.config.outputMode === "commit") {
-          await writer.write(this.projectCommitFact(fact));
-          recordsRef.count++;
-          this.reporter.progress(recordsRef.count);
-        } else {
-          const parentOid = fact.parents[0] as CommitHash | undefined;
-          const fileChanges = await this.adapter.getFileChanges(
-            repoPath,
-            fact.oid as CommitHash,
-            parentOid,
-          );
-          for (const fileChange of fileChanges) {
-            await writer.write(this.projectFileChangeFact(this.toFileChangeFact(fact, fileChange)));
-            recordsRef.count++;
-            this.reporter.progress(recordsRef.count);
-          }
-        }
+      const recordStream =
+        this.config.outputMode === "file"
+          ? fileProjector.project(expander.expand(commitFacts, repoPath))
+          : commitProjector.project(commitFacts);
+
+      for await (const record of recordStream) {
+        await writer.write(record);
+        recordsRef.count++;
+        this.reporter.progress(recordsRef.count);
       }
     } finally {
       this.reporter.done(recordsRef.count);

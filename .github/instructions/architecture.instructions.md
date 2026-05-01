@@ -109,7 +109,7 @@ implementation sessions must treat the following contract as binding.
   `DefaultCommitTraversalExtractor` internally — no new runtime wiring surface is exposed
   through `src/index.ts`.
 
-### Phase 3 expansion and projection stage contracts
+### Phase 3 expansion and projection stage contracts (implemented)
 
 - `FileChangeExpander` is introduced to separate file-change expansion from traversal and projection.
 - It owns the transformation of `CommitFact` into `FileChangeFact` by calling `GitAdapter.getFileChanges()`

@@ -48,7 +48,7 @@ The primary focus is the roadmap item `Architecture: Fact-based extraction pipel
 ### Phase 3: File-Change Expansion and Projector Split
 
 - **File**: [`plans/phase-3.md`](plans/phase-3.md)
-- **Status**: Planned
+- **Status**: Completed
 
 ### Phase 4: Coordinator, Output Sink, and Checkpoint Orchestration
 

@@ -161,3 +161,12 @@ export interface CommitTraversalRequest {
 export interface CommitTraversalExtractor {
   extract(request: CommitTraversalRequest, reporter: Reporter): AsyncIterable<CommitFact>;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3 expansion stage contract
+// ---------------------------------------------------------------------------
+
+/** Core-owned interface for the file-change expansion stage. */
+export interface FileChangeExpander {
+  expand(commits: AsyncIterable<CommitFact>, repositoryPath: string): AsyncIterable<FileChangeFact>;
+}

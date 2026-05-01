@@ -5,8 +5,8 @@ _Introduce `FileChangeExpander` and split output projection into `CommitRecordPr
 #### Status
 
 - [x] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] In progress
+- [x] Completed
 
 #### Design Maturity
 
