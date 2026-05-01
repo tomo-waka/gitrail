@@ -55,6 +55,7 @@ gitrail [options] <repository-path>
 | `--rotate-lines <n>`       |       | number              |          | —       | Start new file after `n` lines                                                                              |
 | `--rotate-size <bytes>`    |       | number              |          | —       | Start new file after `n` bytes                                                                              |
 | `--quiet`                  | `-q`  | boolean             |          | `false` | Suppress progress and summary output                                                                        |
+| `--profile`                |       | boolean             |          | `false` | Print per-stage timing information to stderr after a successful extraction. Suppressed by `--quiet`.        |
 
 Progress updates and the final summary are written to **stderr**; use `--quiet` to suppress them.
 Validation errors exit with code `1`; runtime errors with code `2`. See the

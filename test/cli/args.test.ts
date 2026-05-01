@@ -390,6 +390,22 @@ describe("parseArgs – valid args round-trip", () => {
     const { quiet } = await parseArgs(adapter);
     expect(quiet).toBe(false);
   });
+
+  it("sets profile=true when --profile is provided", async () => {
+    repoDir = await makeRealRepo();
+    const adapter = new IsomorphicGitAdapter();
+    setArgv("--branch", "main", "--profile", "--output-dir", repoDir, repoDir);
+    const { profile } = await parseArgs(adapter);
+    expect(profile).toBe(true);
+  });
+
+  it("sets profile=false when --profile is not provided", async () => {
+    repoDir = await makeRealRepo();
+    const adapter = new IsomorphicGitAdapter();
+    setArgv("--branch", "main", "--output-dir", repoDir, repoDir);
+    const { profile } = await parseArgs(adapter);
+    expect(profile).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

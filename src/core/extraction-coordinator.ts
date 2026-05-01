@@ -28,6 +28,7 @@ export class DefaultExtractionCoordinator implements ExtractionCoordinator {
       sink,
       checkpointStore,
       reporter,
+      profiler,
     } = this.deps;
 
     // -----------------------------------------------------------------------
@@ -86,13 +87,17 @@ export class DefaultExtractionCoordinator implements ExtractionCoordinator {
     let recordsWritten = 0;
     try {
       for await (const record of recordStream) {
+        const tWrite = profiler ? profiler.now() : 0;
         await sink.write(record);
+        if (profiler) profiler.addWriteMs(profiler.now() - tWrite);
         recordsWritten++;
         reporter.progress(recordsWritten);
       }
     } finally {
       reporter.done(recordsWritten);
+      const tClose = profiler ? profiler.now() : 0;
       await sink.close();
+      if (profiler) profiler.addWriteMs(profiler.now() - tClose);
     }
 
     // -----------------------------------------------------------------------

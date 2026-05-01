@@ -10,6 +10,7 @@ import type { GitAdapter } from "../git/index.js";
 
 export interface ParsedArgs extends ExtractorConfig {
   quiet: boolean;
+  profile: boolean;
 }
 
 // Define all citty args on a defineCommand descriptor.
@@ -76,6 +77,12 @@ const argsDef = {
     alias: "q",
     description: "Suppress progress and summary output (for CI, cron, and scripted usage)",
   },
+  profile: {
+    type: "boolean" as const,
+    default: false,
+    description:
+      "Print per-stage timing information as an aligned block to stderr after a successful extraction. Suppressed by --quiet.",
+  },
   "per-file": {
     type: "boolean" as const,
     default: false,
@@ -137,6 +144,7 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParsedArgs> {
   const rotateSizeRaw = parsed["rotate-size"] as string | undefined;
   const repoPath = parsed["repository-path"] as string | undefined;
   const quiet = Boolean(parsed["quiet"]);
+  const profile = Boolean(parsed["profile"]);
   const perFile = Boolean(parsed["per-file"]);
 
   // --- Phase 1: Format and mutual exclusion checks (no I/O) ---
@@ -283,5 +291,6 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParsedArgs> {
     stateFilePath: state,
     perFile,
     quiet,
+    profile,
   };
 }

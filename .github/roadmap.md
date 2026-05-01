@@ -286,6 +286,7 @@ This means the expected behavior for gitrail is also **error on unknown argument
 #### Development: Granular performance profiling
 
 **Release target**: `v0.4.0`
+**Status**: Implemented in Phase 6.
 
 Add per-phase timing instrumentation to measure where time is actually spent during extraction. The target granularity is: DAG traversal, blob reads, diff computation (per-file), and output writing.
 

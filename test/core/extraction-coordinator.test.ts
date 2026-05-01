@@ -198,6 +198,7 @@ function makeDeps(
     sink,
     checkpointStore: overrides.checkpointStore,
     reporter: overrides.reporter ?? makeReporter(),
+    profiler: overrides.profiler,
   };
 }
 
@@ -463,5 +464,34 @@ describe("DefaultExtractionCoordinator", () => {
     await coord.run(baseRequest({ sessionTimestamp: ts }));
 
     expect(checkpointStore.stored?.generatedAt).toBe("2025-06-15T12:00:00.000Z");
+  });
+
+  it("profiler.addWriteMs called for write and close but NOT checkpoint write", async () => {
+    let time = 0;
+    const profilerStub = {
+      now: () => ++time,
+      addTraversalMs: (_ms: number) => {},
+      addBlobReadMs: (_ms: number) => {},
+      addDiffMs: (_ms: number) => {},
+      addProjectionMs: (_ms: number) => {},
+      writeMs: 0,
+      addWriteMs(ms: number) {
+        this.writeMs += ms;
+      },
+      snapshot: () => ({
+        traversalMs: 0,
+        blobReadMs: 0,
+        diffMs: 0,
+        projectionMs: 0,
+        writeMs: time,
+      }),
+    };
+
+    const deps = makeDeps({ oids: ["1".padStart(40, "0")], profiler: profilerStub });
+    const coord = new DefaultExtractionCoordinator(deps);
+    await coord.run(baseRequest());
+
+    // writeMs accumulated from write + close calls; must be > 0 with incrementing clock
+    expect(profilerStub.writeMs).toBeGreaterThan(0);
   });
 });

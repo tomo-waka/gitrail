@@ -83,7 +83,7 @@ const main = defineCommand({
       process.exit(2);
     }
     try {
-      const { quiet } = parsed;
+      const { quiet, profile } = parsed;
       const reporter = quiet ? noopReporter : stderrReporter;
       const stateStore = parsed.stateFilePath
         ? new NodeCheckpointStore(parsed.stateFilePath)
@@ -107,6 +107,15 @@ const main = defineCommand({
         process.stderr.write(
           `  Branches        : ${result.branches.length > 0 ? result.branches.join(", ") : "(none)"}\n`,
         );
+        if (profile && result.timings) {
+          const t = result.timings;
+          process.stderr.write(`\nProfile\n`);
+          process.stderr.write(`  Traversal   : ${t.traversalMs.toFixed(2)}ms\n`);
+          process.stderr.write(`  Blob reads  : ${t.blobReadMs.toFixed(2)}ms\n`);
+          process.stderr.write(`  Diff        : ${t.diffMs.toFixed(2)}ms\n`);
+          process.stderr.write(`  Projection  : ${t.projectionMs.toFixed(2)}ms\n`);
+          process.stderr.write(`  Write       : ${t.writeMs.toFixed(2)}ms\n`);
+        }
       }
     } catch (e) {
       if (e instanceof GitAdapterError) {

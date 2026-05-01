@@ -324,9 +324,35 @@ gitrail [options] <repository-path>
 
 ### Control
 
-| Parameter | Alias | Type    | Default | Description                                    |
-| --------- | ----- | ------- | ------- | ---------------------------------------------- |
-| `--quiet` | `-q`  | boolean | `false` | Suppress progress and summary output on stderr |
+| Parameter   | Alias | Type    | Default | Description                                                                                          |
+| ----------- | ----- | ------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `--quiet`   | `-q`  | boolean | `false` | Suppress progress and summary output on stderr                                                       |
+| `--profile` |       | boolean | `false` | Print per-stage timing information to stderr after a successful extraction. Suppressed by `--quiet`. |
+
+### Profiling output
+
+When `--profile` is set and the run succeeds, gitrail appends an aligned block to stderr after the
+default completion summary:
+
+```
+Profile
+  Traversal   : 12.34ms
+  Blob reads  : 0.00ms
+  Diff        : 0.00ms
+  Projection  : 4.56ms
+  Write       : 2.10ms
+```
+
+| Bucket       | What it measures                                                      |
+| ------------ | --------------------------------------------------------------------- |
+| `Traversal`  | Time spent walking the commit DAG and processing raw commit objects   |
+| `Blob reads` | Time spent reading file content from the Git object store (file mode) |
+| `Diff`       | Time spent computing line-level diff statistics (file mode)           |
+| `Projection` | Time spent mapping internal facts to the output JSON schema           |
+| `Write`      | Time spent writing records and closing the output sink                |
+
+In commit-granularity mode (no `--per-file`), `Blob reads` and `Diff` are always `0.00ms` because
+`getFileChanges` is never called.
 
 ### Mutual exclusion rules
 

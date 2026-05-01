@@ -492,3 +492,27 @@ describe("IsomorphicGitAdapter.findMergeBase", () => {
     }
   });
 });
+
+describe("IsomorphicGitAdapter.setProfiler – blob and diff timing", () => {
+  it("blobReadMs and diffMs accumulate when setProfiler is called and getFileChanges runs", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    const sha1 = await addCommit("a.txt", "hello\nworld\n", "root commit");
+    const sha2 = await addCommit("a.txt", "hello\nuniverse\n", "modify file");
+
+    let time = 0;
+    const clock = () => ++time;
+
+    const { DefaultStageProfiler } = await import("../../src/core/profiler.js");
+    const profiler = new DefaultStageProfiler(clock);
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    adapter.setProfiler(profiler);
+
+    await adapter.getFileChanges("/", sha2 as never, sha1 as never);
+
+    const snapshot = profiler.snapshot();
+    expect(snapshot.blobReadMs).toBeGreaterThan(0);
+    expect(snapshot.diffMs).toBeGreaterThan(0);
+  });
+});

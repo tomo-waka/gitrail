@@ -4,15 +4,20 @@ import { diffLines } from "diff";
 import * as git from "isomorphic-git";
 import type { FsClient } from "isomorphic-git";
 
-import type { CommitHash } from "../core/index.js";
+import type { CommitHash, StageProfiler } from "../core/index.js";
 import { GitAdapterError } from "./errors.js";
 import type { FileChange, GitAdapter, RawCommit } from "./index.js";
 
 export class IsomorphicGitAdapter implements GitAdapter {
   private readonly _fs: FsClient;
+  private _profiler?: StageProfiler;
 
   constructor(fsImpl?: FsClient) {
     this._fs = fsImpl ?? (nodeFs as FsClient);
+  }
+
+  setProfiler(profiler: StageProfiler): void {
+    this._profiler = profiler;
   }
 
   async resolveRef(repoPath: string, ref: string): Promise<CommitHash> {
@@ -157,43 +162,52 @@ export class IsomorphicGitAdapter implements GitAdapter {
           if (typeA === "blob" && typeB === "blob") {
             const [oidA, oidB] = await Promise.all([A!.oid(), B!.oid()]);
             if (oidA === oidB) return; // unchanged
+            const tBlob = this._profiler ? this._profiler.now() : 0;
             const [contentA, contentB] = await Promise.all([A!.content(), B!.content()]);
-            changes.push(
-              this._buildFileChange(
-                filepath,
-                "modified",
-                contentA ?? new Uint8Array(0),
-                contentB ?? new Uint8Array(0),
-              ),
+            if (this._profiler) this._profiler.addBlobReadMs(this._profiler.now() - tBlob);
+            const tDiff = this._profiler ? this._profiler.now() : 0;
+            const change = this._buildFileChange(
+              filepath,
+              "modified",
+              contentA ?? new Uint8Array(0),
+              contentB ?? new Uint8Array(0),
             );
+            if (this._profiler) this._profiler.addDiffMs(this._profiler.now() - tDiff);
+            changes.push(change);
             return;
           }
 
           // Added (no parent blob at this path)
           if (typeB === "blob") {
+            const tBlob = this._profiler ? this._profiler.now() : 0;
             const contentB = await B!.content();
-            changes.push(
-              this._buildFileChange(
-                filepath,
-                "added",
-                new Uint8Array(0),
-                contentB ?? new Uint8Array(0),
-              ),
+            if (this._profiler) this._profiler.addBlobReadMs(this._profiler.now() - tBlob);
+            const tDiff = this._profiler ? this._profiler.now() : 0;
+            const change = this._buildFileChange(
+              filepath,
+              "added",
+              new Uint8Array(0),
+              contentB ?? new Uint8Array(0),
             );
+            if (this._profiler) this._profiler.addDiffMs(this._profiler.now() - tDiff);
+            changes.push(change);
             return;
           }
 
           // Deleted (no child blob at this path)
           if (typeA === "blob") {
+            const tBlob = this._profiler ? this._profiler.now() : 0;
             const contentA = await A!.content();
-            changes.push(
-              this._buildFileChange(
-                filepath,
-                "deleted",
-                contentA ?? new Uint8Array(0),
-                new Uint8Array(0),
-              ),
+            if (this._profiler) this._profiler.addBlobReadMs(this._profiler.now() - tBlob);
+            const tDiff = this._profiler ? this._profiler.now() : 0;
+            const change = this._buildFileChange(
+              filepath,
+              "deleted",
+              contentA ?? new Uint8Array(0),
+              new Uint8Array(0),
             );
+            if (this._profiler) this._profiler.addDiffMs(this._profiler.now() - tDiff);
+            changes.push(change);
           }
         },
       });
@@ -212,15 +226,18 @@ export class IsomorphicGitAdapter implements GitAdapter {
           const typeA = await A.type();
           if (typeA !== "blob") return;
 
+          const tBlob = this._profiler ? this._profiler.now() : 0;
           const contentA = await A.content();
-          changes.push(
-            this._buildFileChange(
-              filepath,
-              "added",
-              new Uint8Array(0),
-              contentA ?? new Uint8Array(0),
-            ),
+          if (this._profiler) this._profiler.addBlobReadMs(this._profiler.now() - tBlob);
+          const tDiff = this._profiler ? this._profiler.now() : 0;
+          const change = this._buildFileChange(
+            filepath,
+            "added",
+            new Uint8Array(0),
+            contentA ?? new Uint8Array(0),
           );
+          if (this._profiler) this._profiler.addDiffMs(this._profiler.now() - tDiff);
+          changes.push(change);
         },
       });
     }

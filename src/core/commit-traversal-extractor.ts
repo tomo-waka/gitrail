@@ -7,6 +7,7 @@ import type {
   CommitTraversalRequest,
   ExtractionRange,
   Reporter,
+  StageProfiler,
 } from "./types.js";
 
 function toCommitFact(
@@ -40,9 +41,11 @@ function toCommitFact(
 
 export class DefaultCommitTraversalExtractor implements CommitTraversalExtractor {
   private readonly adapter: GitAdapter;
+  private readonly profiler?: StageProfiler;
 
-  constructor(adapter: GitAdapter) {
+  constructor(adapter: GitAdapter, profiler?: StageProfiler) {
     this.adapter = adapter;
+    this.profiler = profiler;
   }
 
   extract(request: CommitTraversalRequest, reporter: Reporter): AsyncIterable<CommitFact> {
@@ -103,7 +106,9 @@ export class DefaultCommitTraversalExtractor implements CommitTraversalExtractor
         plan.head,
         plan.excludeHash,
       )) {
+        const t0 = this.profiler ? this.profiler.now() : 0;
         const fact = processRawCommit(rawCommit);
+        if (this.profiler) this.profiler.addTraversalMs(this.profiler.now() - t0);
         if (fact !== null) yield fact;
       }
     } catch (err) {
@@ -113,7 +118,9 @@ export class DefaultCommitTraversalExtractor implements CommitTraversalExtractor
         );
         // Full traversal without excludeHash; already-visited commits are skipped via deduplication.
         for await (const rawCommit of this.adapter.walkCommits(repositoryPath, plan.head)) {
+          const t0 = this.profiler ? this.profiler.now() : 0;
           const fact = processRawCommit(rawCommit);
+          if (this.profiler) this.profiler.addTraversalMs(this.profiler.now() - t0);
           if (fact !== null) yield fact;
         }
       } else {

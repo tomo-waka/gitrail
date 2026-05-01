@@ -9,6 +9,7 @@ import { DefaultCommitTraversalExtractor } from "./commit-traversal-extractor.js
 import { DefaultExtractionCoordinator } from "./extraction-coordinator.js";
 import { DefaultFileChangeExpander } from "./file-change-expander.js";
 import { DefaultFileChangeRecordProjector } from "./file-change-record-projector.js";
+import { DefaultStageProfiler } from "./profiler.js";
 import type {
   CheckpointStore,
   CoordinatorDependencies,
@@ -17,6 +18,7 @@ import type {
   ExtractorConfig,
   MonotonicClock,
   Reporter,
+  StageProfiler,
   WallClock,
 } from "./types.js";
 import { isCommitHash } from "./types.js";
@@ -101,6 +103,15 @@ export class Extractor {
     const remoteUrl = await this.adapter.getRemoteUrl(repoPath);
     const repoName = deriveRepoName(remoteUrl, repoPath);
 
+    // Create a fresh profiler for this run.
+    const profiler: StageProfiler = new DefaultStageProfiler(this.monotonicNow);
+
+    // Wire profiler to adapter if it supports setProfiler (duck-typed; GitAdapter interface unchanged).
+    const profilable = this.adapter as unknown as { setProfiler?: (p: StageProfiler) => void };
+    if (typeof profilable.setProfiler === "function") {
+      profilable.setProfiler(profiler);
+    }
+
     // Load and validate prior checkpoint (includes missing-state warning emission).
     const priorCheckpoint = await this.loadPriorCheckpoint(repoPath);
 
@@ -113,12 +124,12 @@ export class Extractor {
     );
     const sink = new OutputWriterSink(writer);
 
-    // Construct stage instances.
+    // Construct stage instances — pass profiler to each timed stage.
     const traversalPlanner = new DefaultBranchTraversalPlanner(this.adapter);
-    const traversalExtractor = new DefaultCommitTraversalExtractor(this.adapter);
+    const traversalExtractor = new DefaultCommitTraversalExtractor(this.adapter, profiler);
     const fileChangeExpander = new DefaultFileChangeExpander(this.adapter);
-    const commitProjector = new DefaultCommitRecordProjector(repoName, remoteUrl);
-    const fileProjector = new DefaultFileChangeRecordProjector(repoName, remoteUrl);
+    const commitProjector = new DefaultCommitRecordProjector(repoName, remoteUrl, profiler);
+    const fileProjector = new DefaultFileChangeRecordProjector(repoName, remoteUrl, profiler);
 
     const deps: CoordinatorDependencies = {
       traversalPlanner,
@@ -129,6 +140,7 @@ export class Extractor {
       sink,
       checkpointStore: this.stateStore,
       reporter: this.reporter,
+      profiler,
     };
     const coordinator = new DefaultExtractionCoordinator(deps);
 
@@ -149,6 +161,7 @@ export class Extractor {
       bytesWritten: sink.bytesWritten,
       elapsedMs: this.monotonicNow() - startTime,
       branches: result.branches,
+      timings: profiler.snapshot(),
     };
   }
 }

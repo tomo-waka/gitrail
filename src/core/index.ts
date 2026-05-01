@@ -14,6 +14,7 @@ export type {
   ExtractionCheckpoint,
   ExtractionRange,
   ExtractionResult,
+  ExtractionTimings,
   ExtractorConfig,
   FileChangeExpander,
   FileChangeFact,
@@ -22,6 +23,7 @@ export type {
   PersonIdentity,
   Reporter,
   RotationConfig,
+  StageProfiler,
   // Compatibility aliases (kept until Phase 4 cleanup)
   StateBranchEntry,
   StateFile,
@@ -39,3 +41,4 @@ export {
   FileChangeRecordProjector,
   DefaultFileChangeRecordProjector,
 } from "./file-change-record-projector.js";
+export { DefaultStageProfiler } from "./profiler.js";

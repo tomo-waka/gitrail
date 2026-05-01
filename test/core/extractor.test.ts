@@ -237,6 +237,40 @@ describe("Extractor", () => {
     expect(lines).toHaveLength(3);
   });
 
+  it("result.timings is defined with non-negative buckets on a successful commit-mode run", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    await addCommit("a.txt", "v1", "first commit", 1000);
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    const config = makeConfig({ outputDir: tmpDir });
+    const extractor = makeExtractor(config, adapter);
+    const result = await extractor.run();
+
+    expect(result.timings).toBeDefined();
+    const t = result.timings!;
+    expect(t.traversalMs).toBeGreaterThanOrEqual(0);
+    expect(t.blobReadMs).toBeGreaterThanOrEqual(0);
+    expect(t.diffMs).toBeGreaterThanOrEqual(0);
+    expect(t.projectionMs).toBeGreaterThanOrEqual(0);
+    expect(t.writeMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("blobReadMs and diffMs are 0 in commit-granularity runs (getFileChanges is never called)", async () => {
+    const { fs, init, addCommit } = makeRepo();
+    await init();
+    await addCommit("a.txt", "v1", "first commit", 1000);
+
+    const adapter = new IsomorphicGitAdapter(fs);
+    const config = makeConfig({ outputDir: tmpDir }); // default commit mode
+    const extractor = makeExtractor(config, adapter);
+    const result = await extractor.run();
+
+    expect(result.timings).toBeDefined();
+    expect(result.timings!.blobReadMs).toBe(0);
+    expect(result.timings!.diffMs).toBe(0);
+  });
+
   it("cross-branch deduplication: shared commits appear exactly once", async () => {
     const { fs, init, addCommit, createBranch } = makeRepo();
     await init();

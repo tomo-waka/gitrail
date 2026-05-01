@@ -101,12 +101,36 @@ export type StateBranchEntry = BranchCheckpoint;
 export type StateFile = ExtractionCheckpoint;
 export type StateStore = CheckpointStore;
 
+/** Stage-aligned timing measurements for a single extraction run. */
+export interface ExtractionTimings {
+  readonly traversalMs: number;
+  readonly blobReadMs: number;
+  readonly diffMs: number;
+  readonly projectionMs: number;
+  readonly writeMs: number;
+}
+
+/** Core-owned interface for accumulating stage-aligned timing measurements.
+ *  The `now()` method delegates to an injected MonotonicClock so that tests
+ *  can control time without relying on wall-clock precision. */
+export interface StageProfiler {
+  now(): number;
+  addTraversalMs(ms: number): void;
+  addBlobReadMs(ms: number): void;
+  addDiffMs(ms: number): void;
+  addProjectionMs(ms: number): void;
+  addWriteMs(ms: number): void;
+  snapshot(): ExtractionTimings;
+}
+
 export interface ExtractionResult {
   readonly recordsWritten: number;
   readonly filesCreated: number;
   readonly bytesWritten: number;
   readonly elapsedMs: number;
   readonly branches: readonly string[];
+  /** Stage-aligned timing measurements. Populated on successful runs. */
+  readonly timings?: ExtractionTimings;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,4 +254,6 @@ export interface CoordinatorDependencies {
   readonly sink: OutputSink;
   readonly checkpointStore: CheckpointStore | undefined;
   readonly reporter: Reporter;
+  /** Optional profiler for accumulating writeMs across sink.write() and sink.close() calls. */
+  readonly profiler?: StageProfiler;
 }

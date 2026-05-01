@@ -158,7 +158,7 @@ expander → file projector, else commit projector`) before consuming the projec
   when absent (snapshot mode without `--state`), the coordinator skips the checkpoint write.
 - `ExtractionResult` shape and `src/index.ts` runtime wiring remain unchanged in Phase 4.
 
-### Phase 6 profiling contract
+### Phase 6 profiling contract (implemented)
 
 - Phase 6 introduces stage-aligned performance instrumentation without changing default extraction
   semantics.

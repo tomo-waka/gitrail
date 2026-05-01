@@ -246,7 +246,41 @@ Each layer follows:
 
 This improves type discoverability and keeps runtime modules focused.
 
-## Error Model
+## Profiling Instrumentation
+
+When `--profile` is set and extraction succeeds, gitrail emits per-stage timing to stderr:
+
+```
+Profile
+  Traversal   : 12.34ms
+  Blob reads  : 0.00ms
+  Diff        : 0.00ms
+  Projection  : 4.56ms
+  Write       : 2.10ms
+```
+
+Timings are accumulated by the stage that owns each operation:
+
+| Bucket         | Owning stage                                          | What is measured                                                       |
+| -------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| `traversalMs`  | `CommitTraversalExtractor`                            | Time processing each raw commit during DAG traversal                   |
+| `blobReadMs`   | `IsomorphicGitAdapter` (`getFileChanges`)             | Time reading file content blobs from the Git object store              |
+| `diffMs`       | `IsomorphicGitAdapter` (`getFileChanges`)             | Time computing line-level diff statistics per file                     |
+| `projectionMs` | `CommitRecordProjector` / `FileChangeRecordProjector` | Time mapping internal facts to output JSON schema                      |
+| `writeMs`      | `ExtractionCoordinator`                               | Time for `sink.write()` and `sink.close()` only (not checkpoint write) |
+
+A `StageProfiler` object is created per run inside `Extractor` and passed to each stage
+constructor. `IsomorphicGitAdapter` exposes a `setProfiler()` method (not on the `GitAdapter`
+interface) that `Extractor` calls via duck-typing. This keeps the `GitAdapter` contract stable
+while enabling profiling of adapter internals.
+
+`ExtractionResult.timings` is populated on every successful run regardless of whether `--profile`
+is set; the flag only controls whether the block is printed to stderr.
+
+In commit-granularity mode (no `--per-file`), `blobReadMs` and `diffMs` are always `0` because
+`getFileChanges` is never called.
+
+`--quiet` suppresses the profile block together with the normal progress and summary output.
 
 - User input and validation errors are surfaced with clear single-line messages.
 - Adapter operational failures are represented as typed `GitAdapterError` values.
