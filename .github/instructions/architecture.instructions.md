@@ -90,20 +90,24 @@ implementation sessions must treat the following contract as binding.
 
 ### Phase 2 traversal-stage contract (implemented)
 
-- `CommitTraversalExtractor` is the first extracted stage boundary in the v0.4.0 migration.
-  It is live as of Phase 2 in `src/core/commit-traversal-extractor.ts`.
-- It owns branch-head resolution and collection, per-branch exclusion-boundary calculation,
-  merge-base calculation for newly added branches, sequential branch traversal, cross-branch
-  deduplication, `since-date` filtering, and `COMMIT_NOT_FOUND` fallback behavior.
-- It consumes already-loaded checkpoint data from `Extractor` via `CommitTraversalRequest`; it
-  does not read or write `CheckpointStore` and it does not decide checkpoint commit timing.
-- Its output contract is a `CommitTraversalResult` containing `AsyncIterable<CommitFact>` plus a
-  candidate `ExtractionCheckpoint` derived from the successfully resolved branch heads.
-- `Extractor` remains responsible for repository/checkpoint loading, output projection,
-  file-change expansion, output-writer lifecycle, progress ownership, and persisting the returned
-  checkpoint only after successful output completion.
-- `Extractor` constructs `DefaultCommitTraversalExtractor` internally — no new runtime wiring
-  surface is exposed through `src/index.ts`.
+- Phase 2 now exposes two Core-owned stage boundaries: `BranchTraversalPlanner` in
+  `src/core/branch-traversal-planner.ts` and `CommitTraversalExtractor` in
+  `src/core/commit-traversal-extractor.ts`.
+- `BranchTraversalPlanner` owns branch-head resolution and collection, per-branch
+  exclusion-boundary calculation, merge-base calculation for newly added branches, and
+  missing-branch warning behavior. It returns ordered `BranchTraversalPlan[]` values.
+- `CommitTraversalExtractor` consumes those plans and owns sequential branch traversal,
+  cross-branch deduplication, `since-date` filtering, and `COMMIT_NOT_FOUND` fallback behavior.
+  It does not resolve refs or build checkpoints.
+- Both stages consume already-loaded checkpoint data from `Extractor`; neither stage reads or
+  writes `CheckpointStore`, and neither stage decides checkpoint commit timing.
+- `Extractor` remains responsible for repository/checkpoint loading, candidate checkpoint
+  composition from the planner output, output projection, file-change expansion,
+  output-writer lifecycle, progress ownership, and persisting the checkpoint only after
+  successful output completion.
+- `Extractor` constructs `DefaultBranchTraversalPlanner` and
+  `DefaultCommitTraversalExtractor` internally — no new runtime wiring surface is exposed
+  through `src/index.ts`.
 
 ### Phase 3 expansion and projection stage contracts
 

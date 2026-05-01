@@ -43,7 +43,7 @@ The primary focus is the roadmap item `Architecture: Fact-based extraction pipel
 ### Phase 2: Commit Traversal Stage Extraction
 
 - **File**: [`plans/phase-2.md`](plans/phase-2.md)
-- **Status**: In progress
+- **Status**: Completed
 
 ### Phase 3: File-Change Expansion and Projector Split
 

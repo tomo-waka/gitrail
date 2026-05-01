@@ -3,8 +3,11 @@ import { basename, resolve } from "node:path";
 import type { FileChange, GitAdapter } from "../git/index.js";
 import { OutputWriter, formatSessionTimestamp, splitMessage, toISO8601 } from "../output/index.js";
 import type { OutputCommit, OutputFileRecord } from "../output/index.js";
+import { DefaultBranchTraversalPlanner } from "./branch-traversal-planner.js";
 import { DefaultCommitTraversalExtractor } from "./commit-traversal-extractor.js";
 import type {
+  BranchCheckpoint,
+  BranchTraversalPlan,
   CheckpointStore,
   CommitFact,
   CommitHash,
@@ -133,6 +136,21 @@ export class Extractor {
     return stateMap;
   }
 
+  private buildCandidateCheckpoint(
+    repositoryPath: string,
+    generatedAt: string,
+    plans: readonly BranchTraversalPlan[],
+  ): ExtractionCheckpoint {
+    return {
+      version: 1,
+      generatedAt,
+      repositoryPath,
+      branches: plans.map(
+        (plan): BranchCheckpoint => ({ name: plan.name, lastCommitHash: plan.head }),
+      ),
+    };
+  }
+
   async run(): Promise<ExtractionResult> {
     const startTime = this.monotonicNow();
     const repoPath = resolve(this.config.repositoryPath);
@@ -150,32 +168,37 @@ export class Extractor {
       this.config.rotation,
     );
 
+    const planner = new DefaultBranchTraversalPlanner(this.adapter);
     const traverser = new DefaultCommitTraversalExtractor(this.adapter);
     const recordsRef = { count: 0 };
-    let candidateCheckpoint: ExtractionCheckpoint = {
-      version: 1,
-      generatedAt: sessionTs.toISOString(),
-      repositoryPath: repoPath,
-      branches: [],
-    };
+    const generatedAt = sessionTs.toISOString();
+    let candidateCheckpoint = this.buildCandidateCheckpoint(repoPath, generatedAt, []);
 
     try {
-      const result = await traverser.extract(
+      const plans = await planner.plan(
         {
           repositoryPath: repoPath,
-          repoName,
-          remoteUrl,
           branches: [...this.config.branches],
           mode: this.config.mode,
           priorBranchMap: stateMap,
           range: this.config.range,
-          generatedAt: sessionTs.toISOString(),
         },
         this.reporter,
       );
-      candidateCheckpoint = result.candidateCheckpoint;
+      candidateCheckpoint = this.buildCandidateCheckpoint(repoPath, generatedAt, plans);
 
-      for await (const fact of result.commitFacts) {
+      const commitFacts = traverser.extract(
+        {
+          repositoryPath: repoPath,
+          repoName,
+          remoteUrl,
+          plans,
+          range: this.config.range,
+        },
+        this.reporter,
+      );
+
+      for await (const fact of commitFacts) {
         if (this.config.outputMode === "commit") {
           await writer.write(this.projectCommitFact(fact));
           recordsRef.count++;

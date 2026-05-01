@@ -110,8 +110,38 @@ export interface ExtractionResult {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 traversal-stage contract
+// Phase 2 planning/traversal-stage contract
 // ---------------------------------------------------------------------------
+
+/** Resolved branch traversal boundary for one branch in a single run. */
+export interface BranchTraversalPlan {
+  readonly name: string;
+  readonly head: CommitHash;
+  readonly excludeHash: CommitHash | undefined;
+}
+
+/** Input to the BranchTraversalPlanner stage. */
+export interface BranchTraversalPlanningRequest {
+  /** Resolved absolute path to the repository. */
+  readonly repositoryPath: string;
+  /** Ordered list of branches to plan. */
+  readonly branches: readonly string[];
+  /** Extraction mode; controls whether priorBranchMap is used for exclude-hash selection. */
+  readonly mode: "snapshot" | "incremental";
+  /** Validated branch→lastCommitHash map loaded from a prior checkpoint.
+   *  Empty in snapshot mode or when no prior checkpoint exists. */
+  readonly priorBranchMap: ReadonlyMap<string, CommitHash>;
+  /** Optional extraction range; controls exclusion-boundary selection. */
+  readonly range?: ExtractionRange;
+}
+
+/** Core-owned interface for the branch-planning stage. */
+export interface BranchTraversalPlanner {
+  plan(
+    request: BranchTraversalPlanningRequest,
+    reporter: Reporter,
+  ): Promise<readonly BranchTraversalPlan[]>;
+}
 
 /** Input to the CommitTraversalExtractor stage. */
 export interface CommitTraversalRequest {
@@ -121,31 +151,13 @@ export interface CommitTraversalRequest {
   readonly repoName: string;
   /** Remote origin URL, or null if unavailable. */
   readonly remoteUrl: string | null;
-  /** Ordered list of branches to traverse. */
-  readonly branches: readonly string[];
-  /** Extraction mode; controls whether priorBranchMap is used for exclude-hash selection. */
-  readonly mode: "snapshot" | "incremental";
-  /** Validated branch→lastCommitHash map loaded from a prior checkpoint.
-   *  Empty in snapshot mode or when no prior checkpoint exists. */
-  readonly priorBranchMap: ReadonlyMap<string, CommitHash>;
+  /** Ordered list of per-branch traversal plans. */
+  readonly plans: readonly BranchTraversalPlan[];
   /** Optional extraction range; controls commit filtering within each branch. */
   readonly range?: ExtractionRange;
-  /** ISO 8601 timestamp passed by the caller for the candidate checkpoint generatedAt field. */
-  readonly generatedAt: string;
-}
-
-/** Output of the CommitTraversalExtractor stage. */
-export interface CommitTraversalResult {
-  /** Lazily iterated stream of commit facts; branch order preserved, non-interleaved. */
-  readonly commitFacts: AsyncIterable<CommitFact>;
-  /**
-   * Candidate checkpoint built from successfully resolved branch heads.
-   * Must not be persisted until output writing and writer close both succeed.
-   */
-  readonly candidateCheckpoint: ExtractionCheckpoint;
 }
 
 /** Core-owned interface for the commit traversal stage. */
 export interface CommitTraversalExtractor {
-  extract(request: CommitTraversalRequest, reporter: Reporter): Promise<CommitTraversalResult>;
+  extract(request: CommitTraversalRequest, reporter: Reporter): AsyncIterable<CommitFact>;
 }

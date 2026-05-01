@@ -1,11 +1,13 @@
 export type {
+  BranchTraversalPlan,
+  BranchTraversalPlanner,
+  BranchTraversalPlanningRequest,
   BranchCheckpoint,
   CheckpointStore,
   CommitFact,
   CommitHash,
   CommitTraversalExtractor,
   CommitTraversalRequest,
-  CommitTraversalResult,
   ExtractionCheckpoint,
   ExtractionRange,
   ExtractionResult,
@@ -22,5 +24,6 @@ export type {
   WallClock,
 } from "./types.js";
 export { assertNever, isCommitHash } from "./types.js";
+export { DefaultBranchTraversalPlanner } from "./branch-traversal-planner.js";
 export { Extractor } from "./extractor.js";
 export { DefaultCommitTraversalExtractor } from "./commit-traversal-extractor.js";

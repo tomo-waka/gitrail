@@ -1,46 +1,13 @@
 import type { GitAdapter, RawCommit } from "../git/index.js";
 import { GitAdapterError } from "../git/index.js";
 import type {
-  BranchCheckpoint,
+  BranchTraversalPlan,
   CommitFact,
-  CommitHash,
   CommitTraversalExtractor,
   CommitTraversalRequest,
-  CommitTraversalResult,
-  ExtractionCheckpoint,
   ExtractionRange,
   Reporter,
 } from "./types.js";
-import { assertNever } from "./types.js";
-
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-/** Resolved traversal context for a single branch. Private to this module. */
-interface BranchTraversalPlan {
-  readonly name: string;
-  readonly head: CommitHash;
-  readonly excludeHash: CommitHash | undefined;
-}
-
-function resolveExcludeHash(
-  branchName: string,
-  priorBranchMap: ReadonlyMap<string, CommitHash>,
-  newBranchExclude: CommitHash | undefined,
-  range: ExtractionRange | undefined,
-): CommitHash | undefined {
-  if (range === undefined) {
-    return priorBranchMap.get(branchName) ?? newBranchExclude;
-  }
-  if (range.type === "ref") {
-    return range.ref;
-  } else if (range.type === "date") {
-    return undefined;
-  } else {
-    assertNever(range);
-  }
-}
 
 function toCommitFact(
   rawCommit: RawCommit,
@@ -78,86 +45,13 @@ export class DefaultCommitTraversalExtractor implements CommitTraversalExtractor
     this.adapter = adapter;
   }
 
-  async extract(
-    request: CommitTraversalRequest,
-    reporter: Reporter,
-  ): Promise<CommitTraversalResult> {
-    const {
-      repositoryPath,
-      repoName,
-      remoteUrl,
-      branches,
-      mode,
-      priorBranchMap,
-      range,
-      generatedAt,
-    } = request;
-
-    // Identify new branches that have no prior checkpoint entry (incremental mode only).
-    const newBranches = new Set<string>(
-      mode === "incremental" ? branches.filter((b) => !priorBranchMap.has(b)) : [],
-    );
-
-    // Compute merge-base exclude for newly added branches to avoid cross-run duplicates.
-    let newBranchExclude: CommitHash | undefined;
-    if (newBranches.size > 0 && priorBranchMap.size > 0) {
-      const mergeBase = await this.adapter.findMergeBase(
-        repositoryPath,
-        Array.from(priorBranchMap.values()),
-      );
-      newBranchExclude = mergeBase ?? undefined;
-    }
-
-    // Resolve branch heads and build traversal plans. Missing branches emit a warning and are
-    // excluded from traversal and the candidate checkpoint.
-    const plans: BranchTraversalPlan[] = [];
-    const resolvedHeads = new Map<string, CommitHash>();
-
-    for (const branch of branches) {
-      let head: CommitHash;
-      try {
-        head = await this.adapter.resolveRef(repositoryPath, branch);
-      } catch (err) {
-        if (err instanceof GitAdapterError && err.code === "REF_NOT_FOUND") {
-          reporter.warn(
-            `Warning: Branch "${branch}" no longer exists in the repository. Skipping.`,
-          );
-          continue;
-        }
-        throw err;
-      }
-      resolvedHeads.set(branch, head);
-      const excludeHash = resolveExcludeHash(branch, priorBranchMap, newBranchExclude, range);
-      plans.push({ name: branch, head, excludeHash });
-    }
-
-    // Build candidate checkpoint from successfully resolved heads. The caller is responsible for
-    // persisting this only after output writing and writer close succeed.
-    const candidateCheckpoint: ExtractionCheckpoint = {
-      version: 1,
-      generatedAt,
-      repositoryPath,
-      branches: Array.from(resolvedHeads.entries()).map(
-        ([name, lastCommitHash]): BranchCheckpoint => ({ name, lastCommitHash }),
-      ),
-    };
-
-    // Build the lazy commit-facts stream. Branches are iterated sequentially to preserve
-    // non-interleaved branch order; deduplication spans the full run.
-    const commitFacts = this.iterateCommitFacts(
-      plans,
-      repositoryPath,
-      repoName,
-      remoteUrl,
-      range,
-      reporter,
-    );
-
-    return { commitFacts, candidateCheckpoint };
+  extract(request: CommitTraversalRequest, reporter: Reporter): AsyncIterable<CommitFact> {
+    const { repositoryPath, repoName, remoteUrl, plans, range } = request;
+    return this.iterateCommitFacts(plans, repositoryPath, repoName, remoteUrl, range, reporter);
   }
 
   private async *iterateCommitFacts(
-    plans: BranchTraversalPlan[],
+    plans: readonly BranchTraversalPlan[],
     repositoryPath: string,
     repoName: string,
     remoteUrl: string | null,
