@@ -115,11 +115,27 @@ written` uses humanized units. `Commits traversed` is required specifically so z
 - **Why deferred**: Phase 7 now has a fixed UX contract, but part of the implementation design
   depends on the implemented shape of predecessor phases rather than their intended architecture on
   paper. In particular, the feasibility and ownership details for timer-driven heartbeat refresh,
-  redraw behavior under event-loop blocking work, and any fallback strategy cannot be finalized
-  correctly until the Phase 6 implementation and review establish the real runtime control flow.
-- **Depends on**: completed implementation and review results for Phases 4, 5, and 6, with Phase 6
-  as the direct refinement prerequisite because it introduces the profiling-aligned runtime shape
-  and the latest stderr/output behavior that Phase 7 extends.
+  redraw behavior under event-loop blocking work, and any fallback strategy were contingent on the
+  Phase 6 implementation establishing the real runtime control flow. Phase 6 is now complete;
+  the blocking uncertainty has been resolved. The remaining deferred items (concrete heartbeat
+  strategy, exact Core progress-event types, final target-file list) are implementation-design
+  choices for the refinement session, not Phase 6 unknowns.
+- **Phase 6 profiling shape (for reference)**: Phase 6 implemented a hierarchical
+  `StageProfiler` / `DefaultStageProfiler` / `ProfilingEntry` system — not the flat
+  `ExtractionTimings` bucket approach originally planned. `ExtractionResult.profilingEntries`
+  (type: `readonly ProfilingEntry[]`) returns a preorder traversal of the profiler tree with
+  path-based names (`elapsed`, `elapsed/planning`, `elapsed/traversal`, `elapsed/git`,
+  `elapsed/git/walk-commits`, etc.). The root entry (`profilingEntries[0]`, name `"elapsed"`)
+  holds the total wall time for the run. Phase 7 must use this `profilingEntries[0].wallMs` when
+  it needs the run-level elapsed time from the Core result, rather than referencing any flat timing
+  field. The profiling tree is always produced by the Core (root profiler starts on every run),
+  but child stage profilers are only created when `ExtractorConfig.enableProfiling === true`;
+  the summary's `Elapsed time` should use the runtime edge's own clock for consistency whether
+  `--profile` is set or not.
+- **Depends on**: Phases 4, 5, and 6 — all completed. Phase 6 is the direct refinement
+  prerequisite because it introduces the hierarchical `StageProfiler` / `profilingEntries` runtime
+  shape and the latest stderr/output behavior that Phase 7 extends. All predecessor phases have
+  been implemented and reviewed.
 - **Fixed before refinement**: the human-facing UX contract is already locked. The phase keeps the
   three-stage stderr model (`Preparing extraction`, `Extracting history`, `Finalizing output`), the
   liveness requirement for every active stage, `spinner + elapsed` as the preferred heartbeat
@@ -133,9 +149,9 @@ written` uses humanized units. `Commits traversed` is required specifically so z
   whether any event-loop-blocked code paths require a bounded fallback behavior; the exact Core
   progress event types and ownership split needed to realize the UX contract; and the final list of
   target files/tests once predecessor implementation evidence is available.
-- **Refinement trigger**: Phase 6 implementation and review completed, with the repository in the
-  post-Phase-6 state and the trunk session ready to run a dedicated design refinement session for
-  Phase 7.
+- **Refinement trigger**: **Met.** Phase 6 implementation and review completed. The repository is
+  in the post-Phase-6 state. The trunk session is ready to run a dedicated design refinement
+  session for Phase 7.
 - **Required inputs**: the current `PLAN.md`; this phase file; Phase 4, 5, and 6 branch-session
   summaries; the implemented repository state after Phase 6; relevant stderr/profiling code paths;
   and the current versions of `architecture.instructions.md` and `cli.instructions.md`.
@@ -144,8 +160,8 @@ written` uses humanized units. `Commits traversed` is required specifically so z
 
 - Changing JSON output schema or file-rotation semantics.
 - Changing CLI parameters introduced in Phase 5.
-- Promoting per-stage timing buckets into the default summary; that remains exclusive to
-  `--profile`.
+- Promoting per-stage profiling entries (`ProfilingEntry` tree) into the default summary; that
+  remains exclusive to `--profile`.
 - Adding color, ETA estimation, percentages, or per-branch/per-file log lines.
 - Emitting progress or summaries on stdout.
 - Revisiting diff-backend abstraction or broader naming-audit work beyond the explicitly deferred

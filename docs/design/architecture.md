@@ -252,33 +252,39 @@ When `--profile` is set and extraction succeeds, gitrail emits per-stage timing 
 
 ```
 Profile
-  Traversal   : 12.34ms
-  Blob reads  : 0.00ms
-  Diff        : 0.00ms
-  Projection  : 4.56ms
-  Write       : 2.10ms
+  elapsed                      : wall=  18.40ms  work=  18.40ms
+  elapsed/planning             : wall=   1.10ms  work=   1.10ms
+  elapsed/traversal            : wall=   8.25ms  work=   8.25ms
+  elapsed/projection           : wall=   3.75ms  work=   3.75ms
+  elapsed/write                : wall=   2.10ms  work=   2.10ms
+  elapsed/git/blob-read        : wall=   0.80ms  work=   0.80ms
+  elapsed/git/diff             : wall=   1.45ms  work=   1.45ms
 ```
 
-Timings are accumulated by the stage that owns each operation:
+Profiling entries are accumulated by the stage that owns each operation:
 
-| Bucket         | Owning stage                                          | What is measured                                                       |
-| -------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| `traversalMs`  | `CommitTraversalExtractor`                            | Time processing each raw commit during DAG traversal                   |
-| `blobReadMs`   | `IsomorphicGitAdapter` (`getFileChanges`)             | Time reading file content blobs from the Git object store              |
-| `diffMs`       | `IsomorphicGitAdapter` (`getFileChanges`)             | Time computing line-level diff statistics per file                     |
-| `projectionMs` | `CommitRecordProjector` / `FileChangeRecordProjector` | Time mapping internal facts to output JSON schema                      |
-| `writeMs`      | `ExtractionCoordinator`                               | Time for `sink.write()` and `sink.close()` only (not checkpoint write) |
+| Entry path                 | Owning stage                                          | What is measured                                                       |
+| -------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| `elapsed`                  | `Extractor` root profiler                             | Total extraction wall/work duration                                    |
+| `elapsed/planning`         | `BranchTraversalPlanner`                              | Branch-head resolution and exclude-hash planning                       |
+| `elapsed/traversal`        | `CommitTraversalExtractor`                            | Commit traversal and commit-fact materialization                       |
+| `elapsed/projection`       | `CommitRecordProjector` / `FileChangeRecordProjector` | Fact-to-output-record mapping                                          |
+| `elapsed/write`            | `ExtractionCoordinator`                               | `sink.write()` and `sink.close()` only (not checkpoint write)          |
+| `elapsed/git/blob-read`    | `IsomorphicGitAdapter`                                | Time reading file content blobs from the Git object store              |
+| `elapsed/git/diff`         | `IsomorphicGitAdapter`                                | Time computing line-level diff statistics per file                     |
+| `elapsed/git/...` children | `IsomorphicGitAdapter`                                | Additional Git-internal sub-stages such as `resolve-ref` and traversal |
 
 A `StageProfiler` object is created per run inside `Extractor` and passed to each stage
 constructor. `IsomorphicGitAdapter` exposes a `setProfiler()` method (not on the `GitAdapter`
 interface) that `Extractor` calls via duck-typing. This keeps the `GitAdapter` contract stable
 while enabling profiling of adapter internals.
 
-`ExtractionResult.timings` is populated on every successful run regardless of whether `--profile`
-is set; the flag only controls whether the block is printed to stderr.
+`ExtractionResult.profilingEntries` is populated on every successful run. The root `elapsed` entry
+is always present. The `--profile` flag controls stderr rendering of the aligned profile block and,
+via the current CLI wiring, enables the detailed stage profilers beneath the root entry.
 
-In commit-granularity mode (no `--per-file`), `blobReadMs` and `diffMs` are always `0` because
-`getFileChanges` is never called.
+In commit-granularity mode (no `--per-file`), `elapsed/git/blob-read` and `elapsed/git/diff`
+remain at `0` because `getFileChanges()` is never called.
 
 `--quiet` suppresses the profile block together with the normal progress and summary output.
 

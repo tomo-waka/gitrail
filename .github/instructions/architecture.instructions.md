@@ -162,35 +162,29 @@ expander → file projector, else commit projector`) before consuming the projec
 
 - Phase 6 introduces stage-aligned performance instrumentation without changing default extraction
   semantics.
-- `ExtractionResult` gains an optional `timings?: ExtractionTimings` field. The field remains
-  optional for compatibility, but successful runs populate it once Phase 6 is implemented.
-- `ExtractionTimings` is a Core-owned TypeScript interface with required readonly numeric buckets:
-
-  ```typescript
-  export interface ExtractionTimings {
-    readonly traversalMs: number;
-    readonly blobReadMs: number;
-    readonly diffMs: number;
-    readonly projectionMs: number;
-    readonly writeMs: number;
-  }
-  ```
-
-  It does not carry `elapsedMs`, nested timing groups, optional stage keys, or a free-form map.
-  Total wall-clock duration remains `ExtractionResult.elapsedMs`.
-
-- `ExtractionTimings` uses the stable bucket names `traversalMs`, `blobReadMs`, `diffMs`,
-  `projectionMs`, and `writeMs`. Existing `elapsedMs` remains the authoritative end-to-end total.
-- Timing ownership follows the existing stage boundaries:
-  - `CommitTraversalExtractor` owns `traversalMs`
-  - active projector owns `projectionMs`
-  - `ExtractionCoordinator` owns `writeMs` around `OutputSink.write()` and `OutputSink.close()`
-  - `IsomorphicGitAdapter` owns `blobReadMs` and `diffMs` for `getFileChanges()` internals
+- `ExtractionResult` now carries `profilingEntries: readonly ProfilingEntry[]` rather than a flat
+  `timings` object.
+- `ProfilingEntry` is a Core-owned record with `name`, `wallMs`, and `workMs`. Entry names are
+  slash-separated paths rooted at `elapsed`, for example `elapsed/traversal` or
+  `elapsed/git/blob-read`.
+- `StageProfiler` is the Core-owned abstraction that accumulates hierarchical timing entries.
+  Profilers are scoped per run and may create child profilers via `createScopedProfiler(name)`.
+- Timing ownership follows the existing stage boundaries, but is represented as profiler paths
+  instead of fixed scalar buckets:
+  - `elapsed/planning` for `BranchTraversalPlanner`
+  - `elapsed/traversal` for `CommitTraversalExtractor`
+  - `elapsed/projection` for the active projector
+  - `elapsed/write` for `ExtractionCoordinator` around `OutputSink.write()` and `OutputSink.close()`
+  - `elapsed/git/blob-read` and `elapsed/git/diff` for `IsomorphicGitAdapter.getFileChanges()` internals
+  - additional `elapsed/git/...` children for adapter sub-stages such as `resolve-ref` and commit walking
+- The root `elapsed` entry remains the authoritative total duration within the profiling tree.
 - The `GitAdapter` interface remains unchanged in Phase 6. Profiling must not alter
   `getFileChanges()` return values or add profiling metadata to Core-facing adapter contracts.
 - The CLI adds a boolean `--profile` flag that prints successful-run timing output as an aligned
   multi-line block to stderr. `--quiet` suppresses profile output together with the normal
   progress/summary stderr output.
+- The current CLI wiring enables detailed stage profilers only when `--profile` is requested,
+  while still returning the root `elapsed` entry on successful runs.
 - Failure-path partial timing output is out of scope for Phase 6; extraction errors preserve the
   current error-path behavior.
 

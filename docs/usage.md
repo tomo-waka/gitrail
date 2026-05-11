@@ -336,23 +336,35 @@ default completion summary:
 
 ```
 Profile
-  Traversal   : 12.34ms
-  Blob reads  : 0.00ms
-  Diff        : 0.00ms
-  Projection  : 4.56ms
-  Write       : 2.10ms
+  elapsed                      : wall=  18.40ms  work=  18.40ms
+  elapsed/planning             : wall=   1.10ms  work=   1.10ms
+  elapsed/traversal            : wall=   8.25ms  work=   8.25ms
+  elapsed/projection           : wall=   3.75ms  work=   3.75ms
+  elapsed/write                : wall=   2.10ms  work=   2.10ms
+  elapsed/git/blob-read        : wall=   0.80ms  work=   0.80ms
+  elapsed/git/diff             : wall=   1.45ms  work=   1.45ms
 ```
 
-| Bucket       | What it measures                                                      |
-| ------------ | --------------------------------------------------------------------- |
-| `Traversal`  | Time spent walking the commit DAG and processing raw commit objects   |
-| `Blob reads` | Time spent reading file content from the Git object store (file mode) |
-| `Diff`       | Time spent computing line-level diff statistics (file mode)           |
-| `Projection` | Time spent mapping internal facts to the output JSON schema           |
-| `Write`      | Time spent writing records and closing the output sink                |
+Each line represents one profiling entry from the per-run profiler tree.
 
-In commit-granularity mode (no `--per-file`), `Blob reads` and `Diff` are always `0.00ms` because
-`getFileChanges` is never called.
+| Entry path                 | What it measures                                                               |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `elapsed`                  | Total extraction wall/work duration captured by the root profiler              |
+| `elapsed/planning`         | Branch-planning work before traversal begins                                   |
+| `elapsed/traversal`        | Commit traversal and commit-fact materialization                               |
+| `elapsed/projection`       | Fact-to-output-record mapping in the active projector                          |
+| `elapsed/write`            | `OutputSink.write()` and `OutputSink.close()` only                             |
+| `elapsed/git/blob-read`    | Blob reads inside `IsomorphicGitAdapter.getFileChanges()`                      |
+| `elapsed/git/diff`         | Diff-stat computation inside `IsomorphicGitAdapter.getFileChanges()`           |
+| `elapsed/git/...` children | Additional Git-internal sub-stages such as `resolve-ref`, `walk-commits`, etc. |
+
+`wall` shows elapsed time for that scoped profiler. `work` shows additive measured work inside the
+same scope. The root `elapsed` entry is always present on successful runs. Additional stage entries
+are populated when profiling is enabled.
+
+In commit-granularity mode (no `--per-file`), Git file-expansion sub-stages such as
+`elapsed/git/blob-read` and `elapsed/git/diff` remain at `0.00ms` because `getFileChanges()` is
+never called.
 
 ### Mutual exclusion rules
 
