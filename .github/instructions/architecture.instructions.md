@@ -188,22 +188,28 @@ expander → file projector, else commit projector`) before consuming the projec
 - Failure-path partial timing output is out of scope for Phase 6; extraction errors preserve the
   current error-path behavior.
 
-### Phase 7 progress and cleanup contract
+### Phase 7 progress and cleanup contract (finalized after design refinement)
 
-- Phase 7 is currently a deferred-design phase. The UX contract below is fixed during planning,
-  but a development branch session must not implement Phase 7 until a dedicated design refinement
-  session resolves the implementation-feasibility items after predecessor implementation evidence
-  is available.
-- Phase 7 replaces the old scalar progress contract (`Reporter.progress(recordsWritten)` and
-  `Reporter.done(recordsWritten)`) with a structured phase-aware progress reporter. The stable
-  phase names are `preparing`, `extracting`, and `finalizing`.
-- The runtime edge owns the exact human-facing stderr rendering, but Core owns the event semantics.
-  The extracting-phase snapshot must be able to carry `branchIndex`, `branchCount`,
-  `commitsTraversed`, `recordsWritten`, `bytesWritten`, and `elapsedMs`.
-- Phase 7 treats liveness as a first-class UX requirement. Every active stage must remain visibly
-  alive even when semantic counters are temporarily unchanged. The preferred liveness signal is
-  `spinner + elapsed`, with a silence budget of at most `1s` between visible refreshes while a
-  stage is active.
+- Phase 7 design refinement is complete. The UX contract and implementation design are finalized
+  and ready for implementation session.
+- Phase 7 replaces the old scalar `Reporter` (`warn/progress/done`) with a single phase-aware
+  `ProgressReporter.emit(event)` pathway. Core emits structured progress facts; CLI owns terminal
+  rendering policy.
+- CLI layer owns phase state machine (`preparing` → `extracting` → `finalizing`), phase-aware
+  progress tracking (branch index, commit count, record count, bytes written), fixed `500ms`
+  heartbeat checks for spinner + elapsed refresh, stage line rendering, final summary rendering,
+  and warning interruption handling. Core's coordinator is stateless with respect to rendering
+  policy.
+- `DefaultExtractionCoordinator` tracks `commitsTraversed` by wrapping the `CommitFact` stream
+  with a counter before expansion/projection. It also tracks branch index/count during traversal.
+  Both are exposed in `CoordinatorResult` for use by the CLI layer's real-time progress tracking.
+- Liveness is a first-class UX requirement. Every active stage must remain visibly alive even when
+  semantic counters are temporarily unchanged. The liveness signal is `spinner + elapsed`, with a
+  silence budget of at most `1s` between visible refreshes while a stage is active. Node.js timer
+  callbacks fire reliably between `for await` iterations in the coordinator's write loop, so
+  `setInterval` with fixed `500ms` checks is fully feasible and requires no fallback; all pipeline
+  stages are async-first with no blocking work. Heartbeat checks must suppress redundant redraws
+  when a recent semantic redraw already occurred.
 - The CLI-visible stderr contract for successful non-quiet runs is fixed as:
   - a `Preparing extraction` stage line
   - an `Extracting history` stage line whose active line updates in place
@@ -211,35 +217,23 @@ expander → file projector, else commit projector`) before consuming the projec
   - an aligned completion summary block with the field order `Records written`,
     `Commits traversed`, `Files created`, `Bytes written`, `Elapsed time`, `Branches`
   - an aligned `--profile` block after a single blank line when profiling is requested
-- Preparing/finalizing stage lines show spinner and elapsed time while active. The extracting stage
-  line shows spinner, branch position, `commitsTraversed`, `recordsWritten`, humanized
+- Preparing/finalizing stage lines show spinner and elapsed time while active. The extracting
+  stage line shows spinner, branch position, `commitsTraversed`, `recordsWritten`, humanized
   `bytesWritten`, and elapsed time.
-- Heartbeat updates and semantic updates are distinct. Spinner-frame / elapsed refreshes are
-  required even when branch position or write counters have not advanced recently.
+- Heartbeat updates and semantic updates are distinct. Spinner-frame + elapsed refreshes are
+  required every ~1s even when branch position or write counters have not advanced recently.
 - The active stage line updates at most once per second during steady-state work, plus immediate
   updates on stage transitions, semantic progress changes, warning recovery redraws, and final
   completion.
-- The current planning target is that `commitsTraversed` is counted at the coordinator-owned
-  pipeline boundary by wrapping the `CommitFact` stream before expansion/projection, while
-  `recordsWritten` and `bytesWritten` advance only after successful `OutputSink.write()` calls.
-  Design refinement must confirm that this remains the correct ownership boundary in the
-  implemented post-Phase-6 runtime shape.
-- If a warning interrupts an in-place progress line, the runtime edge prints the warning on its own
-  line and redraws the active stage line afterward.
+- If a warning interrupts an in-place progress line, the runtime edge prints the warning on its
+  own line and redraws the active stage line afterward.
 - `--quiet` suppresses progress-stage lines, the default completion summary, and the profile block,
   but it does not suppress warnings or errors.
-- Technical feasibility is evaluated after this UX target is fixed. Implementation may assess
-  whether timer-driven spinner refresh can always run under event-loop blocking workloads, but it
-  must treat the liveness contract as the goal and explicitly document any unavoidable gap.
-- The deferred implementation items for refinement are: the concrete heartbeat-refresh strategy;
-  whether timer-driven spinner redraw can be guaranteed across the actual post-Phase-6 runtime
-  paths; any bounded fallback behavior for event-loop-blocked code paths; the exact Core progress
-  event types and ownership split; and the final cleanup boundary and target files.
-- The current cleanup target remains removing the `Extractor` compatibility facade and removing the
-  `StateStore`, `StateFile`, and `StateBranchEntry` compatibility aliases so that the runtime edge
-  constructs the finalized `CheckpointStore`, stage instances, `ExtractionCoordinator`,
-  `OutputSink`, and progress reporter directly. Design refinement confirms the exact cleanup shape
-  against the implemented repository state before Phase 7 becomes implementation-ready.
+- Migration cleanup (Phase 7 scope): remove the `Extractor` compatibility facade entirely. The
+  runtime edge (`src/index.ts`) constructs `DefaultExtractionCoordinator`, stage instances,
+  `CheckpointStore` (when `--state` is set), `OutputSink`, and the `ProgressReporter` directly.
+  Remove checkpoint vocabulary compatibility aliases (`StateStore`, `StateFile`,
+  `StateBranchEntry`) from `src/core/types.ts` everywhere in the codebase.
 
 ---
 

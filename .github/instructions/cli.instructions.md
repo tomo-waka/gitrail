@@ -104,6 +104,33 @@ When `--quiet` is not set and extraction succeeds, stderr output is fixed as fol
 3. An aligned completion summary block.
 4. When `--profile` is set, an aligned profile block after a single blank line.
 
+TTY-aware rendering is a CLI-edge concern. When `process.stderr.isTTY === true`, the stage lines
+are rendered in place using a braille spinner and the canonical layouts below:
+
+```text
+⠋ Preparing extraction  0.3s
+⠙ Extracting history  branch 2/3  commits 1542  records 3108  1.2 MB  8.5s
+⠹ Finalizing output  0.8s
+```
+
+The active line is the only line that updates in place. When a stage completes, the spinner is
+removed and the completed stage label is re-emitted in the same column with two leading spaces so
+the label column stays aligned:
+
+```text
+  Preparing extraction  0.3s
+  Extracting history  branch 3/3  commits 1542  records 3108  1.2 MB  8.5s
+  Finalizing output  0.8s
+```
+
+The extracting line always renders fields in this order: spinner frame, stage label, branch
+position, `commits traversed`, `records written`, humanized `bytes written`, and elapsed time.
+The preparing and finalizing lines render only spinner + elapsed while active.
+
+When `process.stderr.isTTY === false`, the CLI suppresses the stage heartbeat UI entirely and emits
+only warnings and the final summary block. This non-TTY behavior is intentional and is not treated
+as a fallback error.
+
 Only the currently active stage line may update in place. Completed stage lines remain visible.
 Every active stage must emit a liveness signal even when semantic counters are not changing. Phase
 7's chosen liveness signal is `spinner + elapsed`, with a silence budget of at most `1s` between
@@ -136,6 +163,19 @@ The default completion summary block uses this field order:
 - `Bytes written`
 - `Elapsed time`
 - `Branches`
+
+The aligned completion summary block has the following canonical layout, including zero-record
+successful runs:
+
+```text
+Extraction complete
+  Records written   : 3108
+  Commits traversed : 1542
+  Files created     : 524
+  Bytes written     : 1.2 MB
+  Elapsed time      : 8.5s
+  Branches          : main, develop
+```
 
 The default summary remains distinct from profiling output. Per-stage timings stay exclusive to
 `--profile` and are not promoted into the normal successful-run summary.
