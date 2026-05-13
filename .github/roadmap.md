@@ -140,6 +140,40 @@ This means the expected behavior for gitrail is also **error on unknown argument
 
 ---
 
+#### Extraction/CLI: User-controlled guardrail for very large text diffs
+
+In per-file extraction mode, line-level diff computation can become a dominant cost for a small
+subset of files that are structurally valid text but operationally "machine-generated large text"
+(for example large lockfiles). Recent profiling and debug investigation showed that these files can
+produce multi-second to tens-of-seconds `diffLines` stalls in a single commit, which degrades both
+total throughput and interactive progress responsiveness.
+
+At the same time, gitrail should not silently reduce extracted information by default. Even when a
+file looks like an outlier, treating its diff as always meaningless is a policy decision that must
+remain in user control.
+
+**Design intent**:
+
+- keep current behavior as the default (no implicit data reduction)
+- provide an explicit opt-in mechanism to skip line-diff computation when file size exceeds a
+  user-defined threshold
+- represent skipped text diffs with the same null-count convention already used for binary files
+  (`additions: null`, `deletions: null`) so downstream contracts remain stable
+
+**CLI direction to evaluate at implementation time**:
+
+- add a dedicated option such as `--max-diff-bytes` (or equivalent naming)
+- default: disabled (full diff behavior)
+- when enabled: if either side of a text diff exceeds threshold, skip line diff and emit null
+  counts
+- evaluate whether an explicit mode flag is also needed (for example: `off|size-threshold`)
+
+**Operational considerations**:
+
+- document clearly that this is an extraction-fidelity vs. runtime trade-off selected by the user
+- include a summary/profile indicator for skipped large-text diffs so users can audit impact
+- ensure behavior is deterministic and reproducible under the same threshold settings
+
 #### Architecture: Diff algorithm abstraction within `IsomorphicGitAdapter`
 
 Introduce a `DiffAdapter` interface as an internal strategy within `IsomorphicGitAdapter`,
