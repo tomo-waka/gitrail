@@ -8,9 +8,10 @@ This roadmap is intentionally organized by product priority and time horizon, no
 
 ### Metadata Convention
 
-Use the following field on selected items when needed:
+Use the following standardized metadata labels on selected items when needed:
 
 - **Release target**: the intended version, such as `v0.1.4`
+- **Depends on**: used when an item depends on one or more other roadmap entries
 
 The intended document flow is:
 
