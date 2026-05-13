@@ -5,13 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — v0.4.0
+## [0.4.0] - 2026-05-13
+
+### Added
+
+- Fact-based pipeline stage boundaries are fully implemented: `BranchTraversalPlanner`,
+  `CommitTraversalExtractor`, `FileChangeExpander`, projector split, and
+  `DefaultExtractionCoordinator` orchestration.
+- Stage-aligned profiling (`--profile`) with hierarchical `profilingEntries` output including
+  `elapsed/*` scoped timings.
+- Phase-aware progress UX with stable stage lines (`Preparing extraction`, `Extracting history`,
+  `Finalizing output`) and completion summary including `Commits traversed`.
 
 ### Changed
 
 - `--mode snapshot|incremental` replaced by boolean `--incremental` flag. Snapshot is now the default; incremental mode is activated by passing `--incremental`. The `-m` alias is removed.
 - `--output-mode commit|file` replaced by boolean `--per-file` flag. Commit granularity is now the default; file granularity is activated by passing `--per-file`.
 - `--on-missing-state error|snapshot` renamed to `--missing-state error|snapshot`. Behavior is unchanged.
+
+### Fixed
+
+- `--quiet` behavior is aligned with the final stderr contract: progress-stage lines, completion
+  summary, and profile block are suppressed while warnings and errors remain visible.
+- Runtime edge wiring now constructs the coordinator pipeline directly; the `Extractor`
+  compatibility facade and checkpoint-vocabulary compatibility aliases are removed.
 
 ### Migration
 
@@ -135,6 +152,8 @@ If your intent was to record state without differential extraction (snapshot wit
 - Timestamp output in ISO 8601 format with commit's own timezone offset
 - No system-installed Git required (uses isomorphic-git)
 
+[0.4.0]: https://github.com/tomo-waka/gitrail/releases/tag/v0.4.0
+[0.3.0]: https://github.com/tomo-waka/gitrail/releases/tag/v0.3.0
 [0.2.0]: https://github.com/tomo-waka/gitrail/releases/tag/v0.2.0
 [0.1.4]: https://github.com/tomo-waka/gitrail/releases/tag/v0.1.4
 [0.1.0]: https://github.com/tomo-waka/gitrail/releases/tag/v0.1.0

@@ -211,7 +211,7 @@ All validation must complete before extraction and file output begin. Validation
 2. **File system** — `<repository-path>` existence, `--output-dir` existence, `--state` parent directory existence, `--state` file existence check (result passed to subsequent logic)
 3. **Git** — repository identity (`resolveRef` on first branch), each `--branch` ref resolution, `--since-ref` resolution via `resolveRef()`, state file content validation (JSON structure, `version`, `repositoryPath` match)
 
-**Phase 2 — state file existence handling for incremental mode:**
+**Validation stage 2 — state file existence handling for incremental mode:**
 
 - If `--incremental` and state file does not exist:
   - `--missing-state error` (default when absent) → exit with code 1

@@ -85,9 +85,9 @@ _Update all human-oriented documentation to reflect the complete set of changes 
 
 #### Status
 
-- [ ] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] Planned
+- [x] In progress
+- [x] Completed
 
 #### Mandatory Files
 
@@ -127,4 +127,14 @@ For each file, check against the actual implementation for: renamed CLI options,
 
 ## Final Verification Checklist
 
-(to be filled when all phases are complete)
+- [x] All development phases (Phase 1-7) are marked Completed.
+- [x] `CHANGELOG.md` contains a finalized `v0.4.0` entry with `Added` / `Changed` / `Fixed` and
+      `Migration` sections.
+- [x] Human-oriented docs were reviewed and updated for v0.4.0 behavior (`README.md`,
+      `docs/usage.md`, `docs/design/architecture.md`, instructions files).
+- [x] Roadmap cleanup completed for implemented v0.4.0 items; remaining entries are forward-looking.
+- [x] Verification commands completed:
+  - `npm run build` pass
+  - `npm test` pass
+  - `npm run lint` pass
+  - `npm run format:check` pass

@@ -1,7 +1,7 @@
 # gitrail — User Guide
 
 gitrail extracts Git commit history from a local repository and writes it as
-[JSON Lines](https://jsonlines.org/) (`.jsonl`) files — one commit per line — suitable for
+[JSON Lines](https://jsonlines.org/) (`.jsonl`) files — one record per line — suitable for
 ingestion into data warehouses, analytics platforms, or any system that consumes
 newline-delimited JSON.
 
@@ -49,8 +49,8 @@ gitrail --branch main ./my-repo
 gitrail -b main ./my-repo
 ```
 
-Output is written to `./my-repo-000001.jsonl` (prefix derived from the remote origin URL, or the
-directory name if no remote is configured).
+Output is written to `./my-repo-<timestamp>-000001.jsonl` (prefix derived from the remote origin
+URL, or the directory name if no remote is configured).
 
 ---
 
@@ -326,7 +326,7 @@ gitrail [options] <repository-path>
 
 | Parameter   | Alias | Type    | Default | Description                                                                                          |
 | ----------- | ----- | ------- | ------- | ---------------------------------------------------------------------------------------------------- |
-| `--quiet`   | `-q`  | boolean | `false` | Suppress progress and summary output on stderr                                                       |
+| `--quiet`   | `-q`  | boolean | `false` | Suppress progress, summary, and profile output on stderr. Warnings and errors remain visible.        |
 | `--profile` |       | boolean | `false` | Print per-stage timing information to stderr after a successful extraction. Suppressed by `--quiet`. |
 
 ### Profiling output

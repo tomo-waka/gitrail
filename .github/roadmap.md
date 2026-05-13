@@ -271,9 +271,9 @@ class IsomorphicGitAdapter implements GitAdapter {
 }
 ```
 
-**Design dependency**: Implementing this before "Granular performance profiling" is low-risk
-because the change is entirely internal to `IsomorphicGitAdapter`. However, profiling data would
-help prioritize which alternative `DiffAdapter` implementations to pursue first.
+**Design dependency**: This remains low-risk because the change is entirely internal to
+`IsomorphicGitAdapter`. Profiling data from the implemented `--profile` baseline can guide which
+alternative `DiffAdapter` implementations to prioritize first.
 
 ---
 

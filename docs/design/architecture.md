@@ -66,7 +66,7 @@ or small repositories. Incremental extraction becomes necessary when:
 - Re-processing full history on every run is too slow or too costly.
 - The downstream system uses an append-only or event-sourced ingestion model.
 
-In these cases, `--mode incremental` with a state file provides a reliable checkpoint mechanism.
+In these cases, `--incremental` with a state file provides a reliable checkpoint mechanism.
 
 ### Key implications of Git's data model
 
@@ -92,7 +92,8 @@ specified range, appears exactly once in a single run's output.
 
 ## System Overview
 
-gitrail is a Node.js CLI that extracts commit history from a local Git repository and writes one commit per line as JSON Lines.
+gitrail is a Node.js CLI that extracts commit history from a local Git repository and writes one
+record per line as JSON Lines (commit-granularity by default, file-granularity with `--per-file`).
 
 The architecture is layered:
 
@@ -118,7 +119,7 @@ Responsibilities:
 - Parse and validate command arguments.
 - Enforce mutual exclusion rules for differential options.
 - Resolve derived defaults (for example output prefix).
-- Convert validated args into `ExtractorConfig`.
+- Convert validated args into runtime extraction inputs for coordinator execution.
 - Handle top-level process exit behavior and user-facing errors.
 
 Notably, state file reading and writing are not CLI responsibilities.
@@ -185,9 +186,9 @@ Core provides rotation settings, but Writer owns enforcement.
 
 ## End-to-End Runtime Flow
 
-1. CLI parses args, validates rules, and builds `ExtractorConfig`.
+1. CLI parses args, validates rules, and resolves runtime extraction inputs.
 2. CLI creates `IsomorphicGitAdapter`, `ProgressController`, and stage instances; calls `DefaultExtractionCoordinator.run()` directly.
-3. Core loads state if configured.
+3. Runtime edge loads state/checkpoint context if configured and passes it in `CoordinatorRequest`.
 4. For each branch:
    - Resolve branch head.
    - Determine exclusion boundary.

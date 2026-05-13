@@ -47,193 +47,51 @@ ambiguity about where logic belongs or what behavior is correct, use these as th
 
 ---
 
-## v0.4.0 Migration Contract
+## Current Architecture Contract
 
-The v0.4.0 release introduces a phased architecture redesign from the current mixed-responsibility
-`Extractor` flow to an explicit fact-based pipeline. During this migration, planning and
-implementation sessions must treat the following contract as binding.
+This file is a current-state contract, not a release history record. Historical implementation
+details belong in `CHANGELOG.md`.
 
-### Target end-state vocabulary
+### Canonical vocabulary
 
-- `CommitFact` and `FileChangeFact` are the stable Core-owned terms for intermediate extraction data.
-- `CheckpointStore`, `ExtractionCheckpoint`, and `BranchCheckpoint` are the stable Core-owned terms
-  for checkpoint persistence contracts.
-- `ExtractionTimings` is the stable Core-owned term for stage-aligned extraction timing data.
+- `CommitFact` and `FileChangeFact` are the stable Core-owned intermediate terms.
+- `CheckpointStore`, `ExtractionCheckpoint`, and `BranchCheckpoint` are the stable checkpoint
+  persistence terms.
+- `ProfilingEntry` (`ExtractionResult.profilingEntries`) is the stable profiling term.
 - `ExtractionCoordinator`, `CommitTraversalExtractor`, `FileChangeExpander`,
-  `CommitRecordProjector`, `FileChangeRecordProjector`, and `OutputSink` are the target named stage
-  boundaries for the redesigned pipeline.
+  `CommitRecordProjector`, `FileChangeRecordProjector`, and `OutputSink` are the stable pipeline
+  stage boundaries.
 
-### Migration boundary rules
+### Ownership and boundary rules
 
-- The redesign is phased. Do not collapse the migration into a single rewrite.
-- `Extractor` remains the compatibility facade until the dedicated coordinator/orchestration phase
-  explicitly replaces its mixed responsibilities.
-- The compatibility facade and remaining checkpoint-vocabulary aliases are removed in the final
-  Phase 7 cleanup once progress redesign decisions are fixed.
-- Phases 3 and 4 have completed their designated splits: file-granularity branching now lives in
-  dedicated expander/projector modules, and checkpoint commit timing, sink lifecycle ownership, and
-  progress ownership now live in `ExtractionCoordinator`.
-- CLI-visible behavior, output schema semantics, and the current `ExtractionResult` shape must
-  remain unchanged unless a later release phase explicitly redesigns those user-facing contracts.
-
-### Ownership rules during migration
-
-- Core owns the fact vocabulary, checkpoint vocabulary, traversal/extraction workflow, and the
-  compatibility seams needed to preserve behavior while the pipeline is being split.
-- The Git adapter continues to own Git-native raw commit/file-change data and repository access
-  primitives; it must not be reshaped around the new fact vocabulary prematurely.
-- The output layer continues to own `OutputRecord` serialization, rotation, and concrete file
-  writing concerns.
-- Domain-oriented stage boundaries are preferred over using `OutputRecord` as the final Core
-  boundary. Projection remains distinct from traversal and from persistence in the target design.
-
-### Phase 2 traversal-stage contract (implemented)
-
-- Phase 2 now exposes two Core-owned stage boundaries: `BranchTraversalPlanner` in
-  `src/core/branch-traversal-planner.ts` and `CommitTraversalExtractor` in
-  `src/core/commit-traversal-extractor.ts`.
-- `BranchTraversalPlanner` owns branch-head resolution and collection, per-branch
-  exclusion-boundary calculation, merge-base calculation for newly added branches, and
-  missing-branch warning behavior. It returns ordered `BranchTraversalPlan[]` values.
-- `CommitTraversalExtractor` consumes those plans and owns sequential branch traversal,
-  cross-branch deduplication, `since-date` filtering, and `COMMIT_NOT_FOUND` fallback behavior.
-  It does not resolve refs or build checkpoints.
-- Both stages consume already-loaded checkpoint data from `Extractor`; neither stage reads or
-  writes `CheckpointStore`, and neither stage decides checkpoint commit timing.
-- `Extractor` remains responsible for repository/checkpoint loading, candidate checkpoint
-  composition from the planner output, output projection, file-change expansion,
-  output-writer lifecycle, progress ownership, and persisting the checkpoint only after
-  successful output completion.
-- `Extractor` constructs `DefaultBranchTraversalPlanner` and
-  `DefaultCommitTraversalExtractor` internally — no new runtime wiring surface is exposed
-  through `src/index.ts`.
-
-### Phase 3 expansion and projection stage contracts (implemented)
-
-- `FileChangeExpander` is introduced to separate file-change expansion from traversal and projection.
-- It owns the transformation of `CommitFact` into `FileChangeFact` by calling `GitAdapter.getFileChanges()`
-  for each commit and expanding zero or more file changes per commit. Expander semantics remain unchanged
-  from the original: root commits have all files as "added"; merge commits use first-parent file changes;
-  binary files have `null` additions/deletions; empty commits produce zero output.
-- It consumes an `AsyncIterable<CommitFact>` and produces an `AsyncIterable<FileChangeFact>`. It receives
-  `repositoryPath` and a `GitAdapter` injected into its constructor.
-- `CommitRecordProjector` and `FileChangeRecordProjector` are introduced to separate output schema
-  projection from expansion and traversal.
-- Each projector owns the transformation of facts into output schema: `CommitFact` → `OutputCommit` and
-  `FileChangeFact` → `OutputFileRecord` respectively.
-- Projectors are stateless; they receive repository metadata (name, URL) in the constructor and perform
-  pure transformations. They do not read `GitAdapter`, `CheckpointStore`, or `OutputWriter`.
-- `Extractor` makes the decision about which projector pipeline to use (`if outputMode === "file" then
-expander → file projector, else commit projector`) before consuming the projection output. This moves
-  granularity branching out of the write loop but keeps the orchestration decision in `Extractor` for now.
-  In Phase 4, this decision moves to `ExtractionCoordinator`.
-- `Extractor` remains responsible for: checkpoint store I/O, writer lifecycle, progress ownership, metrics
-  aggregation, and persisting the traversal stage's candidate checkpoint only after successful writer close.
-
-### Phase 4 coordinator and sink contracts (implemented)
-
-- `ExtractionCoordinator` is introduced as the orchestration stage that replaces `Extractor`'s execution
-  engine role. It is defined as a Core-owned interface plus one concrete implementation
-  `DefaultExtractionCoordinator`.
-- `ExtractionCoordinator` owns: pipeline construction (selecting traversal → commit projector or
-  traversal → expander → file projector based on `CoordinatorRequest.granularity`), the write loop
-  (iterating the projected `OutputRecord` stream and calling `OutputSink.write()`), progress
-  integration (`reporter.progress()` immediately after each successful write), `reporter.done()`
-  and `sink.close()` in a `finally` block, and writing the final `ExtractionCheckpoint` only after
-  successful pipeline completion and sink close.
-- `ExtractionCoordinator` receives a `CoordinatorRequest` (Core-owned narrower request type, not
-  `ExtractorConfig`) and returns a `CoordinatorResult`. `CoordinatorRequest` uses Core-preferred
-  field names: `granularity` (not `outputMode`), `priorCheckpoint` (not the stateMap), etc.
-- `OutputSink` is introduced as a Core-owned interface (`write`, `close`, `filesCreated`,
-  `bytesWritten`). The concrete implementation `OutputWriterSink` in `src/output/` wraps the
-  existing `OutputWriter` without modifying it.
-- `Extractor` becomes a compatibility wrapper: it loads the prior checkpoint (including
-  missing-state fallback logic and validation), derives repository metadata, constructs all stage
-  instances and the coordinator, calls `coordinator.run()`, and builds `ExtractionResult` from the
-  result and sink metrics. `src/index.ts` is unchanged.
-- Checkpoint write ordering: `sink.close()` always executes in the coordinator's `finally` block.
-  The checkpoint write is placed after the `try/finally` and executes only when the pipeline
-  completes without exception and `close()` succeeds. This preserves the current invariant exactly.
-- The `CheckpointStore` dependency in the coordinator is optional (`CheckpointStore | undefined`);
-  when absent (snapshot mode without `--state`), the coordinator skips the checkpoint write.
-- `ExtractionResult` shape and `src/index.ts` runtime wiring remain unchanged in Phase 4.
-
-### Phase 6 profiling contract (implemented)
-
-- Phase 6 introduces stage-aligned performance instrumentation without changing default extraction
-  semantics.
-- `ExtractionResult` now carries `profilingEntries: readonly ProfilingEntry[]` rather than a flat
-  `timings` object.
-- `ProfilingEntry` is a Core-owned record with `name`, `wallMs`, and `workMs`. Entry names are
-  slash-separated paths rooted at `elapsed`, for example `elapsed/traversal` or
-  `elapsed/git/blob-read`.
-- `StageProfiler` is the Core-owned abstraction that accumulates hierarchical timing entries.
-  Profilers are scoped per run and may create child profilers via `createScopedProfiler(name)`.
-- Timing ownership follows the existing stage boundaries, but is represented as profiler paths
-  instead of fixed scalar buckets:
-  - `elapsed/planning` for `BranchTraversalPlanner`
-  - `elapsed/traversal` for `CommitTraversalExtractor`
-  - `elapsed/projection` for the active projector
-  - `elapsed/write` for `ExtractionCoordinator` around `OutputSink.write()` and `OutputSink.close()`
-  - `elapsed/git/blob-read` and `elapsed/git/diff` for `IsomorphicGitAdapter.getFileChanges()` internals
-  - additional `elapsed/git/...` children for adapter sub-stages such as `resolve-ref` and commit walking
-- The root `elapsed` entry remains the authoritative total duration within the profiling tree.
-- The `GitAdapter` interface remains unchanged in Phase 6. Profiling must not alter
-  `getFileChanges()` return values or add profiling metadata to Core-facing adapter contracts.
-- The CLI adds a boolean `--profile` flag that prints successful-run timing output as an aligned
-  multi-line block to stderr. `--quiet` suppresses profile output together with the normal
-  progress/summary stderr output.
-- The current CLI wiring enables detailed stage profilers only when `--profile` is requested,
-  while still returning the root `elapsed` entry on successful runs.
-- Failure-path partial timing output is out of scope for Phase 6; extraction errors preserve the
-  current error-path behavior.
-
-### Phase 7 progress and cleanup contract (implemented)
-
-- Phase 7 design refinement is complete. The UX contract and implementation design are finalized
-  and ready for implementation session.
-- Phase 7 replaces the old scalar `Reporter` (`warn/progress/done`) with a single phase-aware
-  `ProgressReporter.emit(event)` pathway. Core emits structured progress facts; CLI owns terminal
-  rendering policy.
-- CLI layer owns phase state machine (`preparing` → `extracting` → `finalizing`), phase-aware
-  progress tracking (branch index, commit count, record count, bytes written), fixed `500ms`
-  heartbeat checks for spinner + elapsed refresh, stage line rendering, final summary rendering,
-  and warning interruption handling. Core's coordinator is stateless with respect to rendering
+- The runtime edge (`src/index.ts`) constructs `DefaultExtractionCoordinator`, stage instances,
+  optional `CheckpointStore` (`--state`), `OutputSink`, and `ProgressReporter` directly.
+- Core owns traversal/extraction orchestration, pipeline branching by granularity, write-loop
+  progression, checkpoint commit timing, and structured progress events.
+- CLI owns rendering policy (TTY vs non-TTY, spinner/heartbeat, summary/profile layout, warning
+  redraw behavior) and top-level process/error behavior.
+- Git adapter owns Git-native repository access and raw commit/file-change retrieval. Core must
+  remain insulated from isomorphic-git details.
+- Output layer owns serialization and rotation mechanics. Core must not duplicate writer rotation
   policy.
-- `DefaultExtractionCoordinator` tracks `commitsTraversed` by wrapping the `CommitFact` stream
-  with a counter before expansion/projection. It also tracks branch index/count during traversal.
-  Both are exposed in `CoordinatorResult` for use by the CLI layer's real-time progress tracking.
-- Liveness is a first-class UX requirement. Every active stage must remain visibly alive even when
-  semantic counters are temporarily unchanged. The liveness signal is `spinner + elapsed`, with a
-  silence budget of at most `1s` between visible refreshes while a stage is active. Node.js timer
-  callbacks fire reliably between `for await` iterations in the coordinator's write loop, so
-  `setInterval` with fixed `500ms` checks is fully feasible and requires no fallback; all pipeline
-  stages are async-first with no blocking work. Heartbeat checks must suppress redundant redraws
-  when a recent semantic redraw already occurred.
-- The CLI-visible stderr contract for successful non-quiet runs is fixed as:
-  - a `Preparing extraction` stage line
-  - an `Extracting history` stage line whose active line updates in place
-  - a `Finalizing output` stage line
-  - an aligned completion summary block with the field order `Records written`,
-    `Commits traversed`, `Files created`, `Bytes written`, `Elapsed time`, `Branches`
-  - an aligned `--profile` block after a single blank line when profiling is requested
-- Preparing/finalizing stage lines show spinner and elapsed time while active. The extracting
-  stage line shows spinner, branch position, `commitsTraversed`, `recordsWritten`, humanized
-  `bytesWritten`, and elapsed time.
-- Heartbeat updates and semantic updates are distinct. Spinner-frame + elapsed refreshes are
-  required every ~1s even when branch position or write counters have not advanced recently.
-- The active stage line updates at most once per second during steady-state work, plus immediate
-  updates on stage transitions, semantic progress changes, warning recovery redraws, and final
-  completion.
-- If a warning interrupts an in-place progress line, the runtime edge prints the warning on its
-  own line and redraws the active stage line afterward.
-- `--quiet` suppresses progress-stage lines, the default completion summary, and the profile block,
-  but it does not suppress warnings or errors.
-- Migration cleanup (Phase 7 scope): remove the `Extractor` compatibility facade entirely. The
-  runtime edge (`src/index.ts`) constructs `DefaultExtractionCoordinator`, stage instances,
-  `CheckpointStore` (when `--state` is set), `OutputSink`, and the `ProgressReporter` directly.
-  Remove checkpoint vocabulary compatibility aliases (`StateStore`, `StateFile`,
-  `StateBranchEntry`) from `src/core/types.ts` everywhere in the codebase.
+
+### Progress and profiling contracts
+
+- Progress signaling is phase-aware via `ProgressReporter.emit(event)`.
+- Successful non-quiet runs use stage-oriented stderr output (`Preparing extraction`,
+  `Extracting history`, `Finalizing output`), then completion summary, then optional profile block.
+- `--quiet` suppresses progress-stage lines, completion summary, and profile block, but warnings
+  and errors remain visible.
+- `ExtractionResult.profilingEntries` is hierarchical and rooted at `elapsed`.
+- Adapter-facing contracts must not be polluted with profiling metadata.
+
+### Invariants
+
+- Checkpoint state is committed only after successful output completion and sink close.
+- `OutputSink.close()` must run on both success and failure paths.
+- Progress counters must advance only after successful write operations.
+- Filtering by date must continue traversal (`continue`, not `break`) because traversal order is
+  not chronological.
 
 ---
 
@@ -253,7 +111,7 @@ Responsibilities:
 
 - Orchestrate commit traversal by calling `GitAdapter`
 - Map raw commit data to the output JSON schema
-- Apply differential filtering (since-commit / since-date); uses `continue` (not `break`) for `--since-date` because BFS order is not chronological
+- Apply differential filtering (`--since-ref` / `--since-date`); uses `continue` (not `break`) for `--since-date` because BFS order is not chronological
 - Read the state file at startup; write it atomically (`.tmp` → rename) only after all output files are fully flushed and closed
 - Instantiate `OutputWriter` with the rotation config — rotation thresholds are enforced inside `OutputWriter`, not in Core
 
@@ -374,7 +232,7 @@ Every layer follows a consistent two-file pattern:
 - **`types.ts`** — all TypeScript interfaces and type aliases for that layer. No runtime code.
 - **`index.ts`** — re-export barrel only. No type definitions or logic.
 
-This separation was introduced in Phase 2 to keep type definitions discoverable and to prevent circular imports between layers.
+This separation keeps type definitions discoverable and helps prevent circular imports between layers.
 
 ---
 
@@ -385,11 +243,11 @@ Managed by Core Logic. Written atomically (write to temp file, then rename).
 Schema:
 
 ```typescript
-interface StateFile {
+interface ExtractionCheckpoint {
   version: 1;
   generatedAt: string; // ISO 8601
   repositoryPath: string;
-  branches: Array<{
+  branches: readonly Array<{
     name: string;
     lastCommitHash: string;
   }>;

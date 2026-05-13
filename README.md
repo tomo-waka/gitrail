@@ -5,7 +5,7 @@ A CLI tool that extracts commit history from a local Git repository and outputs 
 ## Features
 
 - Reads the local `.git` directory directly via [isomorphic-git](https://isomorphic-git.org/) — no `git` CLI required at runtime
-- Outputs one commit per line in JSON Lines format
+- Outputs one record per line in JSON Lines format (commit-granularity by default)
 - Two extraction modes: snapshot (full extraction each run) and `--incremental` (differential extraction using a state file)
 - Handles multi-branch extraction with cross-branch deduplication
 
