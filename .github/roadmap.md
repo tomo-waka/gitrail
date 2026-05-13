@@ -174,6 +174,55 @@ remain in user control.
 - include a summary/profile indicator for skipped large-text diffs so users can audit impact
 - ensure behavior is deterministic and reproducible under the same threshold settings
 
+---
+
+#### Architecture/Runtime: Worker-based extraction runtime for resilience and orchestration
+
+The current extraction pipeline runs in a single Node.js execution context. This keeps the
+implementation straightforward, but it also couples heavy extraction work with CLI lifecycle and
+interactive rendering. For long-running or computationally heavy workloads, this coupling makes
+stability, supervision, and execution strategy evolution harder than necessary.
+
+This item introduces a Worker-based runtime boundary: extraction executes in an isolated worker,
+while the main process remains responsible for CLI lifecycle, supervision, and user interaction.
+
+**Primary goals (core value)**:
+
+- improve long-run extraction stability via execution isolation
+- improve fault tolerance through clear failure boundaries and controlled shutdown semantics
+- establish a foundation for future orchestration flexibility (parallelism, scheduling, retry)
+- improve extensibility by formalizing runtime and messaging boundaries
+
+**Secondary outcomes (expected but non-primary)**:
+
+- smoother progress behavior under heavy extraction load
+- cleaner profiling/telemetry boundaries between extraction work and CLI supervision
+
+**Scope strategy (single entry, phased delivery)**:
+
+- **Phase A: runtime boundary only**
+  - run the existing extraction pipeline in one worker
+  - define a typed message protocol for progress, warning, result, and error events
+  - keep extraction semantics and output behavior unchanged
+- **Phase B: operational hardening**
+  - add cancellation, timeout, and supervision semantics
+  - make failure reporting and exit behavior deterministic
+- **Phase C: orchestration-ready foundation**
+  - prepare interfaces for future parallel strategies (branch-level or stage-level)
+  - do not require immediate parallel execution in this item
+
+**Non-goals for initial implementation**:
+
+- no guaranteed throughput improvement in the first delivery
+- no implicit data reduction or extraction-fidelity trade-off
+- no simultaneous rollout of broad parallel execution and plugin architecture
+
+**Design constraints**:
+
+- preserve current extraction correctness and checkpoint safety guarantees
+- maintain deterministic behavior under equivalent inputs and configuration
+- keep CLI UX backward compatible unless explicitly documented otherwise
+
 #### Architecture: Diff algorithm abstraction within `IsomorphicGitAdapter`
 
 Introduce a `DiffAdapter` interface as an internal strategy within `IsomorphicGitAdapter`,
