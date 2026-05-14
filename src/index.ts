@@ -19,11 +19,11 @@ import {
   DefaultStageProfiler,
 } from "./core/index.js";
 import type {
-  CheckpointStore,
   CoordinatorDependencies,
-  ExtractionCheckpoint,
+  ExtractionState,
   ProgressReporter,
   StageProfiler,
+  StateStore,
 } from "./core/index.js";
 import { isCommitHash } from "./core/index.js";
 import { GitAdapterError, IsomorphicGitAdapter } from "./git/index.js";
@@ -43,64 +43,62 @@ function deriveRepoName(remoteUrl: string | null, repoPath: string): string {
   return basename(repoPath);
 }
 
-function emptyCheckpoint(repositoryPath: string): ExtractionCheckpoint {
+function emptyState(repositoryPath: string): ExtractionState {
   return { version: 1, generatedAt: "", repositoryPath, branches: [] };
 }
 
-async function loadPriorCheckpoint(
-  stateStore: CheckpointStore | undefined,
+async function loadPriorState(
+  stateStore: StateStore | undefined,
   parsed: ParsedArgs,
   repoPath: string,
   reporter: ProgressReporter,
-): Promise<ExtractionCheckpoint> {
+): Promise<ExtractionState> {
   if (!stateStore || !parsed.incremental) {
-    return emptyCheckpoint(repoPath);
+    return emptyState(repoPath);
   }
-  const checkpoint = await stateStore.read();
-  if (checkpoint === null) {
+  const state = await stateStore.read();
+  if (state === null) {
     if (parsed.missingState === "snapshot") {
       reporter.emit({
         type: "warning",
         message: `Warning: State file not found: ${parsed.stateFilePath}. Falling back to full snapshot extraction.`,
       });
-      return emptyCheckpoint(repoPath);
+      return emptyState(repoPath);
     }
-    return emptyCheckpoint(repoPath);
+    return emptyState(repoPath);
   }
-  if (checkpoint.version !== 1) {
-    throw new Error(`Unsupported state file version: ${checkpoint.version}`);
+  if (state.version !== 1) {
+    throw new Error(`Unsupported state file version: ${state.version}`);
   }
-  const recordedPath = resolve(checkpoint.repositoryPath);
+  const recordedPath = resolve(state.repositoryPath);
   if (recordedPath !== repoPath) {
-    throw new Error(
-      `State file was created for a different repository: ${checkpoint.repositoryPath}`,
-    );
+    throw new Error(`State file was created for a different repository: ${state.repositoryPath}`);
   }
-  for (const entry of checkpoint.branches) {
+  for (const entry of state.branches) {
     if (!isCommitHash(entry.lastCommitHash)) {
       throw new Error(
         `Invalid commit hash in state file for branch "${entry.name}": ${entry.lastCommitHash}`,
       );
     }
   }
-  return checkpoint;
+  return state;
 }
 
 // ---------------------------------------------------------------------------
-// NodeCheckpointStore
+// NodeStateStore
 // ---------------------------------------------------------------------------
 
-class NodeCheckpointStore implements CheckpointStore {
+class NodeStateStore implements StateStore {
   private readonly stateFilePath: string;
   constructor(stateFilePath: string) {
     this.stateFilePath = stateFilePath;
   }
 
-  async read(): Promise<ExtractionCheckpoint | null> {
+  async read(): Promise<ExtractionState | null> {
     const { readFile } = await import("node:fs/promises");
     try {
       const raw = await readFile(this.stateFilePath, "utf8");
-      return JSON.parse(raw) as ExtractionCheckpoint;
+      return JSON.parse(raw) as ExtractionState;
     } catch (err) {
       if (
         err instanceof Error &&
@@ -113,7 +111,7 @@ class NodeCheckpointStore implements CheckpointStore {
     }
   }
 
-  async write(state: ExtractionCheckpoint): Promise<void> {
+  async write(state: ExtractionState): Promise<void> {
     const tmpPath = `${this.stateFilePath}.tmp`;
     await writeFile(tmpPath, JSON.stringify(state, null, 2), "utf8");
     await rename(tmpPath, this.stateFilePath);
@@ -188,7 +186,7 @@ const main = defineCommand({
       }
 
       const stateStore = parsed.stateFilePath
-        ? new NodeCheckpointStore(parsed.stateFilePath)
+        ? new NodeStateStore(parsed.stateFilePath)
         : undefined;
 
       const repoPath = resolve(parsed.repositoryPath);
@@ -208,7 +206,7 @@ const main = defineCommand({
         }
       }
 
-      const priorCheckpoint = await loadPriorCheckpoint(stateStore, parsed, repoPath, reporter);
+      const priorState = await loadPriorState(stateStore, parsed, repoPath, reporter);
 
       const sessionTimestamp = new Date();
       const tsStr = formatSessionTimestamp(sessionTimestamp);
@@ -239,7 +237,7 @@ const main = defineCommand({
         fileChangeExpander,
         projector,
         sink,
-        checkpointStore: stateStore,
+        stateStore,
         reporter,
         profiler: writeProfiler,
       };
@@ -252,7 +250,7 @@ const main = defineCommand({
         branches: [...parsed.branches],
         granularity: parsed.perFile ? "file" : "commit",
         range: parsed.range,
-        priorCheckpoint,
+        priorState,
         sessionTimestamp,
       });
 

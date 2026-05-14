@@ -4,9 +4,9 @@ _Refine internal TypeScript identifier names so they match the actual domain con
 
 #### Status
 
-- [x] Planned
+- [ ] Planned
 - [ ] In progress
-- [ ] Completed
+- [x] Completed
 
 #### Design Maturity
 

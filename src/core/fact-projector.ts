@@ -1,12 +1,8 @@
 import { splitMessage, toISO8601 } from "../output/index.js";
 import type { OutputRecord } from "../output/types.js";
 import { withProfiler } from "./profiler-utils.js";
-import type { CommitFact, Fact, FileChangeFact, StageProfiler } from "./types.js";
+import type { CommitFact, Fact, FactProjector, FileChangeFact, StageProfiler } from "./types.js";
 import { assertNever } from "./types.js";
-
-export interface FactProjector {
-  project(facts: AsyncIterable<Fact>): AsyncIterable<OutputRecord>;
-}
 
 export class DefaultFactProjector implements FactProjector {
   private readonly repoName: string;
