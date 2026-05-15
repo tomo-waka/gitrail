@@ -19,6 +19,43 @@ Roadmap entries use the following standardized metadata labels, placed immediate
 
 ### Near-term
 
+#### Compatibility: Hash-algorithm-agnostic commit OID support
+
+gitrail currently documents and validates commit hashes as SHA-1/40-character values in several
+places. This creates a product-level gap for repositories that use non-SHA-1 object formats,
+because extraction intent is to faithfully export Git history, not to enforce one hash algorithm.
+
+This item upgrades the product contract from "SHA-1 commit hash" to "Git commit object ID"
+where feasible, and treats remaining limitations as explicit compatibility constraints rather than
+implicit runtime failures.
+
+**Design intent**:
+
+- make extraction behavior hash-algorithm-agnostic at the gitrail contract level
+- remove runtime assumptions that reject valid non-40-character commit OIDs
+- preserve checkpoint and traversal correctness guarantees while broadening compatibility
+
+**Required validation before implementation closure**:
+
+- verify isomorphic-git behavior for non-SHA-1 repositories in the exact operations gitrail uses
+  (`resolveRef`, `readCommit`, traversal, merge-base, and tree/file-change workflows)
+- confirm whether there are known object-format constraints in current dependency versions
+- define pass/fail criteria for compatibility tests and record results in repository docs
+
+**Fallback policy if dependency-level constraints are found**:
+
+- do not keep silent SHA-1 assumptions as implicit behavior
+- publish explicit compatibility limitations (supported hash algorithms/object formats)
+- fail with clear user-facing diagnostics when unsupported repository formats are detected
+
+**Scope hints for implementation planning**:
+
+- revisit runtime validators and branded-hash assumptions in state-file read/write paths
+- align README/User Guide/schema wording from SHA-1-specific terminology to algorithm-neutral
+  OID language when compatibility is confirmed
+- keep this work as a compatibility/correctness initiative, not an analytics or schema-extension
+  feature
+
 #### CLI UX: Release-boundary extraction workflow
 
 The current gitrail CLI can express "extract commits after a given ref" via `--since-ref`, but it
