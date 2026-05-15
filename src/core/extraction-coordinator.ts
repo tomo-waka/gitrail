@@ -1,4 +1,4 @@
-import { withProfilerAsync } from "./profiler-utils.js";
+import { withProfilerAsync } from "./profile/index.js";
 import type {
   BranchState,
   CommitFact,

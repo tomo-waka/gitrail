@@ -37,4 +37,3 @@ export { DefaultExtractionCoordinator } from "./extraction-coordinator.js";
 export { DefaultCommitTraversalExtractor } from "./commit-traversal-extractor.js";
 export { DefaultFileChangeExpander } from "./file-change-expander.js";
 export { DefaultFactProjector } from "./fact-projector.js";
-export { DefaultStageProfiler } from "./profiler.js";

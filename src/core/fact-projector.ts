@@ -1,6 +1,6 @@
 import { splitMessage, toISO8601 } from "../output/index.js";
 import type { OutputRecord } from "../output/types.js";
-import { withProfiler } from "./profiler-utils.js";
+import { withProfiler } from "./profile/index.js";
 import type { CommitFact, Fact, FactProjector, FileChangeFact, StageProfiler } from "./types.js";
 import { assertNever } from "./types.js";
 
