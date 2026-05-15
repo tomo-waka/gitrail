@@ -8,25 +8,53 @@ This roadmap is intentionally organized by product priority and time horizon, no
 
 ### Metadata Convention
 
-Use the following field on selected items when needed:
+Roadmap entries use the following standardized metadata labels, placed immediately below the entry title:
 
-- **Release target**: the intended version, such as `v0.1.4`
-
-The intended document flow is:
-
-- roadmap → future-facing backlog and release targeting
-- plan → active implementation tracking
-- changelog → released history
-
-Execution status is intentionally not tracked in the roadmap for now. If that becomes necessary later, it should be redesigned based on an actual operational need rather than kept as a weak placeholder.
-
-This keeps the roadmap stable for both humans and LLMs while still making release planning explicit.
+- **Release target**: `vX.Y.Z` — added when an item is selected for a release during planning
+- **Depends on**: Entry title(s) — indicates dependencies on other roadmap items
 
 ---
 
 ## Product Improvements
 
 ### Near-term
+
+#### Compatibility: Hash-algorithm-agnostic commit OID support
+
+gitrail currently documents and validates commit hashes as SHA-1/40-character values in several
+places. This creates a product-level gap for repositories that use non-SHA-1 object formats,
+because extraction intent is to faithfully export Git history, not to enforce one hash algorithm.
+
+This item upgrades the product contract from "SHA-1 commit hash" to "Git commit object ID"
+where feasible, and treats remaining limitations as explicit compatibility constraints rather than
+implicit runtime failures.
+
+**Design intent**:
+
+- make extraction behavior hash-algorithm-agnostic at the gitrail contract level
+- remove runtime assumptions that reject valid non-40-character commit OIDs
+- preserve checkpoint and traversal correctness guarantees while broadening compatibility
+
+**Required validation before implementation closure**:
+
+- verify isomorphic-git behavior for non-SHA-1 repositories in the exact operations gitrail uses
+  (`resolveRef`, `readCommit`, traversal, merge-base, and tree/file-change workflows)
+- confirm whether there are known object-format constraints in current dependency versions
+- define pass/fail criteria for compatibility tests and record results in repository docs
+
+**Fallback policy if dependency-level constraints are found**:
+
+- do not keep silent SHA-1 assumptions as implicit behavior
+- publish explicit compatibility limitations (supported hash algorithms/object formats)
+- fail with clear user-facing diagnostics when unsupported repository formats are detected
+
+**Scope hints for implementation planning**:
+
+- revisit runtime validators and branded-hash assumptions in state-file read/write paths
+- align README/User Guide/schema wording from SHA-1-specific terminology to algorithm-neutral
+  OID language when compatibility is confirmed
+- keep this work as a compatibility/correctness initiative, not an analytics or schema-extension
+  feature
 
 #### CLI UX: Release-boundary extraction workflow
 
@@ -76,67 +104,79 @@ The `--help` output lists all options in a flat list with no grouping. The jump 
 
 - Group options under section headers: **Output**, **Differential Extraction**, **File Rotation**
 - Add a note to the `--state` description: "Primary mechanism for scheduled/incremental runs"
-- Evaluate whether citty supports option grouping natively; if not, consider a custom help renderer
 
-**Design resolution notes (v0.2.0 — deferred)**:
+**Design resolution notes (v0.2.0 — deferred; updated v0.4.1)**:
 
-- citty does not support option grouping natively (confirmed at v0.2.0 design time). A custom help renderer would be required.
-- Deferred on cost/value grounds: the option set (~10 options) is small enough to be readable without grouping, and gitrail usage patterns tend toward fixed, recurring invocations rather than exploratory CLI trial-and-error. The implementation cost of a custom renderer outweighs the discoverability benefit at this scale.
+- As of v0.4.1, gitrail uses commander (migrated from citty). commander supports option grouping natively — the CLI framework blocker is resolved.
+- Deferred on cost/value grounds: the option set (~10 options) is small enough to be readable without grouping, and gitrail usage patterns tend toward fixed, recurring invocations rather than exploratory CLI trial-and-error. The implementation cost outweighs the discoverability benefit at this scale.
 - `docs/usage.md` and README serve as the primary reference for workflow guidance in the interim.
 
 ---
 
-#### CLI UX: `--rotate-size` human-readable size suffixes
+#### Extraction/File Mode: Exact-content rename detection (limited scope)
 
-`--rotate-size` currently accepts a raw byte count. In practice, users specify thresholds like 500 MB or 1 GB, making raw byte values impractical to type and error-prone to read.
+gitrail currently emits file changes as `added` / `modified` / `deleted` based on path-level tree
+comparison and does not detect rename/move relationships. As a result, a pure file move appears as
+one full-path deletion plus one full-path addition, even when file content is unchanged.
 
-Supporting suffixes such as `--rotate-size 500M` or `--rotate-size 1G` would align the option with the conventions used by popular CLI tools (e.g. GNU `split`, `logrotate`).
+This near-term item introduces an explicit, limited-scope rename detection mode for the most
+deterministic case: pairing `deleted` and `added` records when blob identity is exactly equal.
 
-**Considerations to resolve at implementation time**:
+**Design intent**:
 
-- Which suffixes to accept (`K`, `M`, `G`; case-insensitive or not)
-- Base convention: binary (1 K = 1024) vs. decimal (1 K = 1000) — survey popular CLI tools for the dominant convention at implementation time
-- Whether to continue accepting a plain integer as a raw byte count for backward compatibility
-- Error message wording for unrecognized suffix values
+- provide a practical first step for move-aware extraction without introducing heuristic ambiguity
+- keep default behavior backward compatible unless explicitly enabled
+- treat this as file-level rename detection; directory rename is represented as a set of file
+  renames, not as a separate Git primitive
 
----
+**Scope boundary (initial delivery)**:
 
-#### CLI UX: Warn on unknown CLI arguments
+- detect only exact-content moves (equivalent to `R100` style outcomes)
+- do not infer rename when content has changed in the same commit
+- keep merge behavior aligned with current first-parent comparison semantics
 
-Currently, citty parses arguments with `strict: false` (inherited from `node:util.parseArgs`), which means unrecognized options are silently ignored. A typo such as `--rotate-line` (instead of `--rotate-lines`) passes through without any diagnostic, and the option simply has no effect. This is indistinguishable from a bug in the program itself.
+**Questions to resolve at design time**:
 
-Most mainstream CLI frameworks treat unknown arguments as an error or at minimum a warning (e.g. `argparse` exits with code 2, `commander` errors by default, `yargs` with `strict()` mode). The current behavior is inconsistent with user expectations and can be considered a usability defect.
-
-**Reference behavior: git**:
-
-git is the primary CLI reference for gitrail's UX standards. Although many users interact with git through IDEs or GUI clients rather than the terminal directly, gitrail operates on local git repositories — making git's own CLI conventions the most relevant baseline. When users do invoke gitrail manually, the mental model they bring is shaped by git's behavior.
-
-git treats unknown options as fatal errors and exits immediately without performing any work:
-
-```
-$ git log --unknown-option
-fatal: unrecognized argument: --unknown-option
-# exit code: 128
-```
-
-This means the expected behavior for gitrail is also **error on unknown arguments, exit non-zero, perform no extraction**. A `console.warn`-and-continue approach (warn but proceed) is inconsistent with this baseline and should be considered a fallback only if implementation constraints prevent a clean error path.
-
-**Fix directions to evaluate at design time**:
-
-- **`setup()` hook approach**: In the `defineCommand` `setup()` hook, compare `rawArgs` against the set of known option names (including aliases and kebab/camelCase variants) and emit a `console.warn` to stderr for each unrecognized option. Low implementation cost; no dependency changes.
-- **citty issue / upstream fix**: File a feature request upstream to expose a `strict` mode option. Monitor for resolution before implementing locally.
-- **Library migration**: `commander` and `yargs` have built-in strict modes, but migrating away from citty is a larger architectural change and is not warranted for this issue alone.
-
-**Design considerations**:
-
-- Warnings should go to stderr so they are not captured by output redirection.
-- `--quiet` suppresses progress and summary output but should **not** suppress unknown-argument warnings — a silent typo with `--quiet` would be the hardest failure mode to diagnose.
-- Positional arguments and `--` passthrough must be excluded from the unknown-option check.
-- The warning message should suggest the closest known option name (edit-distance heuristic) if feasible.
+- whether rename output should be represented via a new status/value shape or by optional
+  `oldPath`/`newPath` fields while preserving existing consumers
+- whether the feature should be opt-in via CLI (preferred for compatibility) or enabled by default
+- how to handle one-to-many and many-to-one exact matches deterministically
+- what summary/profile counters should be emitted so users can audit rename pairing impact
 
 ---
 
 ### Medium-term
+
+---
+
+#### Extraction/File Mode: Similarity-based rename detection for edited moves
+
+Exact-content pairing alone is insufficient for common real-world moves where files are renamed and
+edited in the same commit. This item extends the limited near-term rename mode with
+similarity-based matching between deleted and added candidates.
+
+Unlike exact-content pairing, this is inherently heuristic. The design must therefore make
+fidelity, runtime cost, and determinism explicit and user-controllable.
+
+**Design intent**:
+
+- support rename detection when content changes during the move
+- keep matching behavior transparent and reproducible under fixed settings
+- avoid silent extraction-policy shifts by exposing thresholds and guardrails
+
+**Design/implementation considerations**:
+
+- similarity threshold model (single threshold vs tiered behavior)
+- candidate matching strategy and deterministic tie-breaking
+- runtime guardrails for large candidate sets to prevent worst-case blowups
+- compatibility with existing per-file metrics (`additions` / `deletions`) and profiling output
+
+**Open policy questions**:
+
+- whether copy detection should be out of scope initially and kept as a separate future item
+- whether this mode should remain opt-in even after stabilization
+- how explicitly the CLI/docs should label outputs as inferred relationships rather than stored Git
+  facts
 
 ---
 
@@ -287,6 +327,30 @@ alternative `DiffAdapter` implementations to prioritize first.
 
 ### Long-term
 
+#### Output/UX: Directory-move inference from file-rename clusters
+
+Git tracks file-level changes; directory rename is generally inferred from sets of path-level file
+moves. Once file-level rename detection is mature, gitrail can provide an optional higher-level
+view that groups compatible rename sets into inferred directory moves.
+
+This should be treated as an interpretation layer for usability, not as a replacement for
+file-grain facts.
+
+**Design intent**:
+
+- improve readability for refactors that mostly move files across path prefixes
+- preserve canonical file-level output as the primary factual grain
+- make inferred directory-level summaries clearly distinguishable from file-level facts
+
+**Design questions to resolve at implementation time**:
+
+- criteria for grouping rename pairs into a directory-level move inference
+- handling partial migrations and mixed commits (move + edit + add/delete)
+- whether directory inference belongs in primary output, sidecar metadata, or reporting-only views
+- how to expose confidence/coverage so downstream users can evaluate interpretation quality
+
+---
+
 #### Development: Profiling interpretation model and usability
 
 The current profiling implementation is already sufficient as a measurement foundation, but its
@@ -410,40 +474,17 @@ At this point, `OutputWriter` should be redesigned around Node.js `Writable` str
 
 ### Near-term
 
-#### Code hygiene: Identifier naming audit for semantic accuracy
+#### CLI: Schema validation for parsed CLI options
 
-Several identifiers in the codebase carry names that imply a storage medium, lifecycle, or
-structural pattern that the definition itself does not reflect. These are not bugs and do not
-affect behavior, but they reduce the signal-to-noise ratio when reading the code and make type
-names harder to reason about in isolation.
+`parseArgs()` currently uses `program.opts<T>()` with a manually-maintained type parameter. commander's `opts<T>()` is implemented as a type assertion (`return this._optionValues as T`) with no runtime enforcement. The type parameter and the `.option()` definitions on `program` are not linked at compile time — a mismatch introduced during code modification produces incorrect runtime behavior without a compile-time error.
 
-**Representative example**: `StateFile` is an interface describing a plain data structure
-`{ version, generatedAt, repositoryPath, branches }`. The suffix `File` implies a storage medium,
-but the interface carries no I/O semantics — that responsibility belongs to `StateStore`. A name
-such as `State` or `ExtractionState` would be more accurate.
+Introducing a schema validation step between `program.parse()` and the value extraction block in `parseArgs()` would provide runtime guarantees and make the type safe without relying on assertion alignment.
 
-Other potential candidates (to be verified and decided at design time, not predetermined here):
+**Direction to evaluate at design time**:
 
-- `StateBranchEntry` — "Entry" adds no meaning; `StateBranch` may be sufficient
-- `PersonIdentity` — "Identity" is overloaded; `Person` or `PersonInfo` may be clearer
-
-**Acceptable impact boundary**:
-
-This item is scoped to changes that meet **all** of the following conditions simultaneously:
-
-- No change to the CLI interface (flag names, behavior, exit codes)
-- No change to the output JSON schema (field names, structure, `.jsonl` format)
-- No change to the state file JSON format on disk (field names, `version` value)
-- No behavioral change of any kind
-
-Renames that touch only internal TypeScript identifiers — types, interfaces, type aliases, and
-their import references — are within scope. Changes that require altering any of the above
-boundaries must not be bundled into this item and should be tracked separately.
-
-**At design time**: Re-examine all type and interface identifiers in `src/` for similar naming
-issues before finalizing the change list. The examples above are illustrative, not exhaustive.
-
----
+- A schema validation library (zod or similar) is preferred over hand-written validation code to reduce maintenance surface and gain structured error reporting. The specific library choice should be made at planning time based on bundle size impact, ecosystem stability, and TypeScript integration quality at that point.
+- Validation scope: the shape of `program.opts()` only (not a re-implementation of the mutual exclusion or format checks that follow — those remain separate).
+- The inferred type from the schema can replace the manual type parameter on `opts<T>()`, eliminating the misalignment risk entirely.
 
 ### Medium-term
 
