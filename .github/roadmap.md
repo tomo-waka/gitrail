@@ -354,35 +354,20 @@ alternative `DiffAdapter` implementations to prioritize first.
 
 #### Output: Configurable field inclusion/exclusion
 
+This is an output-surface convenience feature rather than a core extraction requirement. In many
+pipelines, downstream warehouses can drop or mask columns after ingest, so the feature's value is
+strongest when users need to minimize exposure or payload size at extraction time instead of in a
+later projection step.
+
 - Add `--fields` or `--exclude-fields` CLI option
-- Allows omitting PII fields such as `author.email`, `committer.email`
-- Enables trimming output size for use cases that don't need all fields
+- Allows omitting PII fields such as `author.email`, `committer.email` when source-side control is
+  desirable
+- Enables trimming output size for use cases that do not need all fields, while keeping the
+  default extraction contract fully populated
 
 ---
 
 ### Long-term
-
-#### Output/UX: Directory-move inference from file-rename clusters
-
-Git tracks file-level changes; directory rename is generally inferred from sets of path-level file
-moves. Once file-level rename detection is mature, gitrail can provide an optional higher-level
-view that groups compatible rename sets into inferred directory moves.
-
-This should be treated as an interpretation layer for usability, not as a replacement for
-file-grain facts.
-
-**Design intent**:
-
-- improve readability for refactors that mostly move files across path prefixes
-- preserve canonical file-level output as the primary factual grain
-- make inferred directory-level summaries clearly distinguishable from file-level facts
-
-**Design questions to resolve at implementation time**:
-
-- criteria for grouping rename pairs into a directory-level move inference
-- handling partial migrations and mixed commits (move + edit + add/delete)
-- whether directory inference belongs in primary output, sidecar metadata, or reporting-only views
-- how to expose confidence/coverage so downstream users can evaluate interpretation quality
 
 ---
 
