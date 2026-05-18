@@ -2,12 +2,6 @@
 
 _Define a first-class, user-facing release-boundary extraction workflow using the existing CLI parameter model (`--ref`, `--since-ref`, `--state`, `--incremental`) and clarify boundary ref resolution, state semantics, and empty-result behavior without introducing a new range flag in this phase._
 
-#### Status
-
-- [x] Planned
-- [ ] In progress
-- [ ] Completed
-
 #### Design Maturity
 
 - [x] Implementation-ready
