@@ -51,6 +51,8 @@ deterministic case: pairing `deleted` and `added` records when blob identity is 
 
 #### State/Incremental: Track non-branch refs in state for reliable incremental extraction
 
+- **Release target**: `v0.6.0`
+
 Currently, only branch refs are recorded in the state file after each extraction. Tags and raw
 commit OIDs specified via `--ref` are not recorded, so they are re-extracted in full on every
 incremental run. This may produce duplicate records in downstream data warehouses when users
@@ -85,6 +87,8 @@ each ref regardless of ref type — so that all refs benefit from incremental tr
 
 #### CLI UX: Terminal output styling and readability
 
+- **Release target**: `v0.6.0`
+
 With recent CLI enhancements, terminal output has become richer but also more information-dense,
 making it harder for users to locate essential information. When many "label: value" entries are
 listed sequentially, target data becomes difficult to find.
@@ -109,6 +113,34 @@ listed sequentially, target data becomes difficult to find.
 - focus on interactive CLI output (progress reporting, status messages, result summaries)
 - does not include JSON output (`--output` files remain unchanged)
 - preserve deterministic, scriptable behavior when stdout is piped or redirected
+
+---
+
+#### CLI UX: User-controlled color policy for non-TTY and CI logs
+
+For v0.6.0, color output is intentionally auto-disabled in non-TTY contexts and no user-facing
+override option is introduced. That default keeps redirected output and scripted usage stable.
+
+This item evaluates a future CLI color policy option surface that preserves the current safe
+default while allowing explicit operator control when non-TTY color is desirable.
+
+**Design intent**:
+
+- keep default behavior as `auto` (TTY-aware enablement, non-TTY disablement)
+- provide explicit overrides for advanced workflows (for example CI log viewers or pagers)
+- maintain deterministic behavior and avoid surprising ANSI escape leakage in machine-oriented
+  pipelines
+
+**Options to evaluate**:
+
+- CLI shape: `--color <auto|always|never>` vs boolean-style split flags
+- environment-variable interoperability (`NO_COLOR`, `FORCE_COLOR`)
+- precedence rules between CLI option, environment variables, and TTY detection
+- documentation and troubleshooting guidance for Windows terminal/CI differences
+
+**Non-goal for this item**:
+
+- no redesign of JSON output contracts; this is terminal presentation policy only
 
 ---
 
@@ -148,6 +180,8 @@ fidelity, runtime cost, and determinism explicit and user-controllable.
 ---
 
 #### Extraction/CLI: User-controlled guardrail for very large text diffs
+
+- **Release target**: `v0.6.0`
 
 In per-file extraction mode, line-level diff computation can become a dominant cost for a small
 subset of files that are structurally valid text but operationally "machine-generated large text"
@@ -463,6 +497,8 @@ Record which branch(es) each commit was reachable from at extraction time (e.g. 
 ---
 
 #### Output: Repository metadata override
+
+- **Release target**: `v0.6.0`
 
 - Add `--repo-name` and `--repo-url` flags
 - Override the auto-derived `repository.name` and `repository.url` fields in output
