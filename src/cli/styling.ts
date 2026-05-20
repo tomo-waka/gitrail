@@ -1,4 +1,3 @@
-
 import chalk from "chalk";
 
 export interface Styling {
