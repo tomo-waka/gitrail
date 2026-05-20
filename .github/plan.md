@@ -33,17 +33,17 @@ v0.6.0 is a minor release focused on CLI reliability and operator control for in
 ### Phase 1: Non-Branch Ref State Tracking
 
 - **File**: [`plans/phase-1.md`](plans/phase-1.md)
-- **Status**: Planned
+- **Status**: Completed
 
 ### Phase 2: Large Text-Diff Guardrail
 
 - **File**: [`plans/phase-2.md`](plans/phase-2.md)
-- **Status**: Planned
+- **Status**: Completed
 
 ### Phase 3: CLI Readability and Metadata Override
 
 - **File**: [`plans/phase-3.md`](plans/phase-3.md)
-- **Status**: Planned
+- **Status**: Completed
 
 Provisional dependency notes:
 
@@ -60,8 +60,8 @@ _Update all human-oriented documentation to reflect the complete set of changes 
 #### Status
 
 - [x] Planned
-- [ ] In progress
-- [ ] Completed
+- [x] In progress
+- [x] Completed
 
 #### Mandatory Files
 
@@ -101,4 +101,12 @@ For each file, check against the actual implementation for: renamed CLI options,
 
 ## Final Verification Checklist
 
-(to be filled when all phases are complete)
+- [x] All implementation phases complete (Phase 1, Phase 2, Phase 3)
+- [x] `npm run build` — passes (tsc, exit 0)
+- [x] `npm test` — passes (259 tests, exit 0)
+- [x] `npm run format:check` — passes (exit 0)
+- [x] `CHANGELOG.md` updated with `[0.6.0]` section (Added, Changed, Migration subsections)
+- [x] `README.md` reviewed; `--max-diff-size`, `--repo-name`, `--repo-url` confirmed documented
+- [x] `roadmap.md` cleaned: all four `Release target: v0.6.0` entries removed
+- [ ] Phase files removed from `plans/` (requires human authorization before deletion)
+- [ ] Release operation: git tag, GitHub release, npm publish (human-performed)
