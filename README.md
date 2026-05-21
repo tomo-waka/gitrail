@@ -1,6 +1,7 @@
 # gitlode
 
-A CLI tool that extracts commit history from a local Git repository and outputs it as [JSON Lines](https://jsonlines.org/) (`.jsonl`) files, suitable for ingestion into data warehouses and analytical systems.
+gitlode is a CLI for turning commit history into analysis-ready [JSON Lines](https://jsonlines.org/) (`.jsonl`) files for data warehouses and BI workflows, rather than interactive commit/file tracing.
+The name comes from lode (valuable ore vein) with a nod to load — gitlode (not gitload).
 
 ## Features
 

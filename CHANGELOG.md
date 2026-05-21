@@ -21,8 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2026-05-20
 
 > [!NOTE]
-> Unreleased — Versions 0.1.0 through 0.6.0
-> These versions were published to npm under the package name `gitrail` and are not re-published as `gitlode`.
+> Historical releases — versions 0.1.0 through 0.6.0
+>
+> These versions were previously published to npm under the package name `gitrail` and have not been republished as `gitlode`.
 > The `gitlode` package starts at v0.6.1 with the same functionality as `gitrail` v0.6.0.
 
 ### Added
