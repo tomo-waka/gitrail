@@ -260,6 +260,46 @@ See also: [Plugin and Monorepo Execution Strategy](plugin-monorepo-strategy.md)
 - minor-bounded compatibility ranges and lower-bound/latest CI checks
 - per-plugin compatibility notes as part of package documentation
 
+#### Configuration File: General-purpose configuration file beyond plugin loading
+
+- **Depends on**: `Pipeline: Pluggable enrichment stage for organization-specific metadata`
+
+The `--config <path>` JSON file introduced for plugin loading is structured to be forward-compatible
+(top-level `version` field, namespaced sections). The initial release implements only the
+`plugins` section; this entry tracks the broader expansion of the same configuration file into a
+general-purpose project configuration surface.
+
+**Design intent**:
+
+- consolidate gitlode operational settings (currently CLI-flag-only) into a single declarative
+  configuration file when their number or coordination cost warrants it
+- preserve the lean, CLI-centric philosophy: configuration file augments but does not replace CLI
+  flags for ad-hoc invocation
+- evolve toward a "config-centric, CLI-override" precedence model (CLI flag > config file value >
+  built-in default) without forcing all users onto a config file
+
+**Candidate sections to evaluate**:
+
+- output rotation defaults (lines/bytes thresholds, file naming pattern)
+- default refs / range selection presets per repository
+- progress / styling defaults (TTY-aware overrides)
+- profile defaults
+- per-repository `repoName` / `repoUrl` overrides (currently CLI-only)
+
+**Open design questions**:
+
+- exact precedence rules between CLI flags and config values for each setting class
+- whether to introduce `extends` for shared organization-wide defaults, and if so, the
+  composition semantics (merge vs override per section)
+- environment-variable interpolation policy (currently a Non-Goal for Phase 1)
+- whether to publish a JSON Schema document for the config file
+- migration path for users who already rely solely on CLI flags
+
+**Non-goal for this item**:
+
+- no change to the plugin section schema once stabilized; this item adds peer sections, it does
+  not redefine the plugin contract
+
 #### Release Engineering: Staged monorepo CI/CD evolution with changesets adoption
 
 This entry introduces stage-based CI/CD evolution for multi-package operations and aligns release
