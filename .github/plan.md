@@ -34,7 +34,7 @@ v0.7.0 is a plugin architecture release focused on enabling organization-specifi
 ### Phase 1: Plugin Runtime and Enrichment Pipeline Integration
 
 - **File**: `plans/phase-1.md`
-- **Status**: Planned
+- **Status**: Completed
 
 ### Phase 2: Official Plugin Package Policy and Compatibility Contract
 
