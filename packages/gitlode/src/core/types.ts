@@ -61,7 +61,16 @@ export interface FileChangeFact {
   };
 }
 
-export type Fact = CommitFact | FileChangeFact;
+export type FactType = "commit" | "file-change";
+
+type FactMap = {
+  commit: CommitFact;
+  "file-change": FileChangeFact;
+};
+
+export type FactFor<Type extends FactType> = FactMap[Type];
+
+export type Fact = FactFor<FactType>;
 
 export interface RotationConfig {
   readonly maxLines?: number;
@@ -86,7 +95,7 @@ export interface ExtractorConfig {
   readonly maxDiffSize?: number;
 }
 
-export type ProgressPhase = "preparing" | "extracting" | "finalizing";
+export type ProgressPhase = "initializing-plugins" | "preparing" | "extracting" | "finalizing";
 
 export type ProgressEvent =
   | { readonly type: "phase-start"; readonly phase: ProgressPhase }
@@ -289,7 +298,7 @@ export interface FileChangeExpander {
 // OutputRecord is imported here (type-only) to define OutputSink and CoordinatorDeps.
 // The circular path core/types.ts → output/types.ts → core/index.ts → core/types.ts
 // is type-only in both directions; TypeScript resolves it without issues.
-import type { OutputRecord } from "../output/types.js";
+import type { OutputRecord, OutputRecordFor } from "../output/types.js";
 
 /** Core-owned interface for output sink. Wraps the output layer's write/close contract. */
 export interface OutputSink {
@@ -333,6 +342,49 @@ export interface FactProjector {
 /** Core-owned interface for the extraction orchestration stage. */
 export interface ExtractionCoordinator {
   run(request: CoordinatorRequest): Promise<CoordinatorResult>;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin contract types
+// ---------------------------------------------------------------------------
+
+export type PluginFailurePolicy = "skip-fact" | "fatal";
+
+export type PluginInitResult = { type: "ready" } | { type: "fatal"; message: string };
+
+export type PluginProjectionResult =
+  | { type: "success"; data: Record<string, unknown> }
+  | { type: "skip"; message: string }
+  | { type: "fatal"; message: string };
+
+type ProjectionContextFor<Type extends FactType> = {
+  readonly fact: FactFor<Type>;
+  readonly baseRecord: Readonly<OutputRecordFor<Type>>;
+};
+
+/** Read-only snapshot of the base output record; passed to plugins for enrichment context. */
+export type ProjectionContext = {
+  [Type in FactType]: ProjectionContextFor<Type>;
+}[FactType];
+
+/** Contract that every projector plugin must satisfy. */
+export interface ProjectorPlugin {
+  init?(): Promise<PluginInitResult>;
+  project(context: ProjectionContext, profiler?: StageProfiler): Promise<PluginProjectionResult>;
+}
+
+/** Module default-export signature for plugin factory functions. ESM only. */
+export type PluginFactory = (config: unknown) => ProjectorPlugin | Promise<ProjectorPlugin>;
+
+/** Validated plugin namespace string — must match /^[a-z0-9-]+$/. */
+export type Namespace = string & { readonly __brand: "Namespace" };
+
+/** Runtime registry record for a loaded, initialized plugin. */
+export interface PluginEntry {
+  readonly namespace: Namespace;
+  readonly plugin: ProjectorPlugin;
+  readonly failurePolicy: PluginFailurePolicy;
+  readonly profiler?: StageProfiler;
 }
 
 /** Constructor dependencies injected into `DefaultExtractionCoordinator`. */

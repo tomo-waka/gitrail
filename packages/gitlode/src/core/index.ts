@@ -19,8 +19,16 @@ export type {
   FileChangeExpander,
   FileChangeFact,
   MonotonicClock,
+  Namespace,
   OutputSink,
   PersonIdentity,
+  PluginEntry,
+  PluginFactory,
+  PluginFailurePolicy,
+  PluginInitResult,
+  PluginProjectionResult,
+  ProjectionContext,
+  ProjectorPlugin,
   ProfilingEntry,
   ProgressEvent,
   ProgressPhase,
@@ -38,4 +46,5 @@ export { DefaultTraversalPlanner } from "./traversal-planner.js";
 export { DefaultExtractionCoordinator } from "./extraction-coordinator.js";
 export { DefaultCommitTraversalExtractor } from "./commit-traversal-extractor.js";
 export { DefaultFileChangeExpander } from "./file-change-expander.js";
-export { DefaultFactProjector } from "./fact-projector.js";
+export { DefaultFactProjector, projectCommit, projectFileChange } from "./fact-projector.js";
+export { EnrichingFactProjector } from "./enriching-fact-projector.js";

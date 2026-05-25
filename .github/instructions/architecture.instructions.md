@@ -60,20 +60,31 @@ details belong in `CHANGELOG.md`.
 - `ProfilingEntry` (`ExtractionResult.profilingEntries`) is the stable profiling term.
 - `ExtractionCoordinator`, `CommitTraversalExtractor`, `FileChangeExpander`,
   `FactProjector`, and `OutputSink` are the stable pipeline stage boundaries.
+- `EnrichingFactProjector` is a Core-owned decorator that wraps `DefaultFactProjector` and
+  invokes plugins declared in the configuration file.
+- `PluginEntry`, `ProjectorPlugin`, `PluginFactory`, `ProjectionContext`, `PluginInitResult`,
+  `PluginProjectionResult`, and `PluginFailurePolicy` are the stable plugin contract terms.
 
 ### Ownership and boundary rules
 
 - The runtime edge (`src/index.ts`) constructs `DefaultExtractionCoordinator`, stage instances,
   optional `StateStore` (`--state`), `OutputSink`, and `ProgressReporter` directly.
-  `DefaultFactProjector` is the single projector instance passed to `DefaultExtractionCoordinator`.
+  When `--config` is provided, `EnrichingFactProjector` is used in place of `DefaultFactProjector`.
+  When `--config` is not provided, `DefaultFactProjector` is used directly.
 - Core owns traversal/extraction orchestration, pipeline branching by granularity, write-loop
   progression, state commit timing, and structured progress events.
+- Core owns `EnrichingFactProjector` and the plugin contract types. `EnrichingFactProjector`
+  calls the pure `projectCommit` / `projectFileChange` functions directly.
 - CLI owns rendering policy (TTY vs non-TTY, spinner/heartbeat, summary/profile layout, warning
   redraw behavior) and top-level process/error behavior.
+- CLI owns plugin config loading (`src/cli/plugins.ts`): reading and validating the config file,
+  resolving module entrypoints, invoking plugin factories, and running parallel `init()`. Plugin
+  `init()` is a CLI boundary responsibility; `EnrichingFactProjector` never calls it.
 - Git adapter owns Git-native repository access and raw commit/file-change retrieval. Core must
   remain insulated from isomorphic-git details.
 - Output layer owns serialization and rotation mechanics. Core must not duplicate writer rotation
   policy.
+- Plugins must not be invoked from within the Git adapter or Output layer.
 
 ### Progress and profiling contracts
 
@@ -104,6 +115,7 @@ details belong in `CHANGELOG.md`.
 - Instantiate Core and pass resolved config (including `stateFilePath` as a string — state file I/O is performed by Core, not CLI)
 - Handle top-level errors and format user-facing error messages
 - Exit with appropriate codes: `0` = success, `1` = user error, `2` = runtime error
+- `src/cli/plugins.ts` — plugin config loading, module resolution, factory invocation, and parallel `init()` orchestration
 
 ### Core Logic Layer (`src/core/`)
 
@@ -114,6 +126,7 @@ Responsibilities:
 - Apply differential filtering (`--since-ref` / `--since-date`); uses `continue` (not `break`) for `--since-date` because BFS order is not chronological
 - Read the state file at startup; write it atomically (`.tmp` → rename) only after all output files are fully flushed and closed
 - Instantiate `OutputWriter` with the rotation config — rotation thresholds are enforced inside `OutputWriter`, not in Core
+- `src/core/enriching-fact-projector.ts` — `EnrichingFactProjector` decorator; wraps the default projector's pure functions and calls plugins in declaration order per fact
 
 After the Phase 7 cleanup, `ExtractionCoordinator` owns pipeline construction, granularity
 branching, the write loop, structured progress integration, sink lifecycle (`OutputSink.close()`),

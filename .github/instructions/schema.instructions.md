@@ -38,6 +38,8 @@ interface OutputCommit {
     name: string; // Derived from remote origin URL or directory name
     url: string | null; // Remote origin URL, or null if not available
   };
+  // Present only when --config is provided and plugins are active.
+  extensions?: Record<string, Record<string, unknown> | null>;
 }
 ```
 
@@ -142,6 +144,22 @@ Populated once per run and applied to every output line.
 - `url`: raw remote origin URL string, or `null` if unavailable; overrideable with `--repo-url`
 
 When `--repo-name` or `--repo-url` is provided, the override value replaces the auto-derived value in all output records. These overrides do not affect state-file identity or incremental extraction behavior.
+
+### `extensions`
+
+Present only when `--config` is provided and at least one plugin is active.
+
+```typescript
+type OutputRecordExtensions = Record<string, Record<string, unknown> | null>;
+```
+
+Each key is a plugin namespace declared in the configuration file. A value of `null` means the
+plugin skipped that fact (due to a `skip` result or a `fatal` result with `failurePolicy:
+"skip-fact"`). Key order in the serialized object matches plugin declaration order. When no
+plugins are configured, the field is omitted from output records entirely.
+
+The `extensions` field is also present on `OutputFileRecord` (via `OutputCommit` inheritance)
+when plugins are active in `--per-file` mode.
 
 ---
 

@@ -746,7 +746,6 @@ describe("parseArgs – --repo-name and --repo-url", () => {
   afterEach(async () => {
     if (repoDir) await rm(repoDir, { recursive: true, force: true });
   });
-
   it("returns repoName from --repo-name", async () => {
     repoDir = await makeRealRepo();
     const adapter = new IsomorphicGitAdapter();
@@ -845,5 +844,63 @@ describe("parseArgs – schema validation boundary", () => {
     await expect(parseArgs(adapter)).rejects.toThrow("process.exit(1)");
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("expected array"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --config
+// ---------------------------------------------------------------------------
+
+describe("parseArgs – --config", () => {
+  let repoDir: string;
+  let configFile: string;
+
+  beforeEach(async () => {
+    repoDir = await makeRealRepo();
+    configFile = join(repoDir, "gitlode.config.json");
+    await writeFile(
+      configFile,
+      JSON.stringify({ version: 1, extensions: { "my-plugin": { entrypoint: "./plugin.js" } } }),
+    );
+  });
+
+  afterEach(async () => {
+    if (repoDir) await rm(repoDir, { recursive: true, force: true });
+  });
+
+  it("defaults configPath to undefined when --config is not provided", async () => {
+    const adapter = new IsomorphicGitAdapter();
+    setArgv("--ref", "main", "--output-dir", repoDir, repoDir);
+    const parsed = await parseArgs(adapter);
+    expect(parsed.configPath).toBeUndefined();
+  });
+
+  it("resolves --config to an absolute path", async () => {
+    const adapter = new IsomorphicGitAdapter();
+    setArgv("--ref", "main", "--output-dir", repoDir, "-c", configFile, repoDir);
+    const parsed = await parseArgs(adapter);
+    expect(parsed.configPath).toBe(configFile);
+  });
+
+  it("accepts -c as alias for --config", async () => {
+    const adapter = new IsomorphicGitAdapter();
+    setArgv("--ref", "main", "--output-dir", repoDir, "-c", configFile, repoDir);
+    const parsed = await parseArgs(adapter);
+    expect(parsed.configPath).toBeDefined();
+  });
+
+  it("exits with code 1 when config file does not exist", async () => {
+    const adapter = new IsomorphicGitAdapter();
+    setArgv(
+      "--ref",
+      "main",
+      "--output-dir",
+      repoDir,
+      "--config",
+      join(repoDir, "nonexistent.json"),
+      repoDir,
+    );
+    await expect(parseArgs(adapter)).rejects.toThrow("process.exit(1)");
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });

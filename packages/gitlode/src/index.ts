@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 
 import type { ParsedArgs } from "./cli/args.js";
 import { parseArgs } from "./cli/index.js";
+import { loadPluginConfig, resolvePluginEntries, initializePlugins } from "./cli/plugins.js";
 import {
   ProgressController,
   resolveUiMode,
@@ -20,12 +21,14 @@ import {
   DefaultExtractionCoordinator,
   DefaultFactProjector,
   DefaultFileChangeExpander,
+  EnrichingFactProjector,
   isCommitOidForProfile,
   REF_TYPES,
 } from "./core/index.js";
 import type {
   CoordinatorDependencies,
   ExtractionState,
+  FactProjector,
   OidProfile,
   ProgressReporter,
   RefType,
@@ -267,13 +270,42 @@ async function main() {
     const traversalPlanner = new DefaultTraversalPlanner(adapter, planningProfiler);
     const traversalExtractor = new DefaultCommitTraversalExtractor(adapter, traversalProfiler);
     const fileChangeExpander = new DefaultFileChangeExpander(adapter, parsed.maxDiffSize);
-    const projector = new DefaultFactProjector(
-      repoName,
-      remoteUrl,
-      projectionProfiler,
-      parsed.repoName,
-      parsed.repoUrl,
-    );
+
+    // Plugin lifecycle: load, resolve, initialize
+    let projector: FactProjector;
+    if (parsed.configPath) {
+      reporter.emit({ type: "phase-start", phase: "initializing-plugins" });
+      const pluginConfig = await loadPluginConfig(parsed.configPath);
+      const pluginEntries = await resolvePluginEntries(pluginConfig, parsed.configPath);
+
+      if (profile) {
+        const pluginsProfiler = projectionProfiler?.createScopedProfiler("plugins");
+        if (pluginsProfiler) {
+          for (const entry of pluginEntries) {
+            const entryProfiler = pluginsProfiler.createScopedProfiler(entry.namespace);
+            (entry as { profiler?: unknown }).profiler = entryProfiler;
+          }
+        }
+      }
+
+      await initializePlugins(pluginEntries);
+      reporter.emit({ type: "phase-end", phase: "initializing-plugins" });
+
+      projector = new EnrichingFactProjector(
+        pluginEntries,
+        reporter,
+        parsed.repoName ?? repoName,
+        parsed.repoUrl !== undefined ? parsed.repoUrl : remoteUrl,
+      );
+    } else {
+      projector = new DefaultFactProjector(
+        repoName,
+        remoteUrl,
+        projectionProfiler,
+        parsed.repoName,
+        parsed.repoUrl,
+      );
+    }
 
     const deps: CoordinatorDependencies = {
       traversalPlanner,

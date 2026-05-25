@@ -61,6 +61,8 @@ interface OutputCommit {
     name: string;
     url: string | null;
   };
+  // Present only when --config is used and plugins are active.
+  extensions?: Record<string, Record<string, unknown> | null>;
 }
 ```
 
@@ -169,7 +171,17 @@ Carries repository metadata embedded in every record to make each line self-cont
 
 When `--repo-name` or `--repo-url` is provided, the override value replaces the auto-derived value in all output records. These overrides do not affect state-file identity or incremental extraction behavior.
 
-## Complete example record
+### `extensions`
+
+Present only when `--config` is provided and at least one plugin is active.
+
+Each key is a plugin namespace declared in the configuration file. A value of `null` means the
+plugin skipped that fact (due to a `skip` result or a `fatal` result with `failurePolicy:
+"skip-fact"`). Key order matches plugin declaration order.
+
+When no plugins are configured, `extensions` is omitted from output records entirely.
+
+## Complete example record (no plugins)
 
 ```json
 {
@@ -190,6 +202,38 @@ When `--repo-name` or `--repo-url` is provided, the override value replaces the 
   "repository": {
     "name": "my-repo",
     "url": "https://github.com/org/my-repo"
+  }
+}
+```
+
+## Complete example record (with plugins)
+
+When `--config` is used with two plugins (`my-plugin` and `other-plugin`), and `other-plugin`
+skipped the fact:
+
+```json
+{
+  "oid": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+  "subject": "Fix null pointer in auth module",
+  "body": "Detailed explanation of the fix.\n\nCloses #123",
+  "author": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "timestamp": "2024-01-15T09:00:00+09:00"
+  },
+  "committer": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "timestamp": "2024-01-15T09:05:00+09:00"
+  },
+  "parents": ["b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"],
+  "repository": {
+    "name": "my-repo",
+    "url": "https://github.com/org/my-repo"
+  },
+  "extensions": {
+    "my-plugin": { "score": 42 },
+    "other-plugin": null
   }
 }
 ```

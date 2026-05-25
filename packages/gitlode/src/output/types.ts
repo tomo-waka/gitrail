@@ -1,4 +1,9 @@
 import type { PersonIdentity } from "../core/index.js";
+import { FactType } from "../core/types.js";
+
+export interface OutputRecordExtensions {
+  [namespace: string]: Record<string, unknown> | null;
+}
 
 export interface OutputPerson extends PersonIdentity {
   readonly timestamp: string; // ISO 8601 with commit's own timezone offset
@@ -17,6 +22,7 @@ export interface OutputCommit {
   readonly committer: OutputPerson;
   readonly parents: readonly string[];
   readonly repository: OutputRepository;
+  readonly extensions?: OutputRecordExtensions;
 }
 
 export interface OutputFileRecord extends OutputCommit {
@@ -28,4 +34,11 @@ export interface OutputFileRecord extends OutputCommit {
   };
 }
 
-export type OutputRecord = OutputCommit | OutputFileRecord;
+type OutputRecordMap = {
+  commit: OutputCommit;
+  "file-change": OutputFileRecord;
+};
+
+export type OutputRecordFor<Type extends FactType> = OutputRecordMap[Type];
+
+export type OutputRecord = OutputRecordFor<FactType>;

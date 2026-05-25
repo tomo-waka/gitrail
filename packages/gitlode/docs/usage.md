@@ -354,6 +354,12 @@ gitlode [options] <repository-path>
 | `--quiet`   | `-q`  | boolean | `false` | Suppress progress, summary, and profile output on stderr. Warnings and errors remain visible.        |
 | `--profile` |       | boolean | `false` | Print per-stage timing information to stderr after a successful extraction. Suppressed by `--quiet`. |
 
+### Configuration File
+
+| Parameter         | Alias | Type   | Default | Description                                                                                                                        |
+| ----------------- | ----- | ------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `--config <path>` | `-c`  | string | —       | Path to the gitlode configuration file. Enables the plugin enrichment pipeline. See [Plugin Enrichment](#plugin-enrichment) below. |
+
 ### Profiling output
 
 When `--profile` is set and the run succeeds, gitlode appends an aligned block to stderr after the
@@ -493,3 +499,87 @@ Details:
 - Over-threshold files are still emitted as file records, but with `additions` and `deletions` set to `null`.
 
 Suggested starting values are `100K` or `1M`, depending on repository characteristics.
+
+---
+
+## Plugin Enrichment
+
+When `--config` is passed, gitlode loads an external configuration file that declares plugins.
+Each plugin attaches custom data to output records under its own namespace key inside the
+`extensions` object.
+
+```bash
+gitlode -r main --config ./gitlode.config.json ./my-repo
+```
+
+### Configuration file format
+
+```json
+{
+  "version": 1,
+  "extensions": {
+    "my-plugin": {
+      "entrypoint": "./my-plugin.js",
+      "config": { "threshold": 10 },
+      "failurePolicy": "skip-fact"
+    }
+  }
+}
+```
+
+| Field           | Required | Description                                                                               |
+| --------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `version`       | ✅       | Must be `1`.                                                                              |
+| `extensions`    | ✅       | Map from namespace to plugin entry. Must have at least one entry.                         |
+| `entrypoint`    | ✅       | Module path or specifier. Relative paths resolve from the config file directory.          |
+| `config`        |          | Passed to the plugin factory. Any JSON value.                                             |
+| `failurePolicy` |          | `"skip-fact"` (default) or `"fatal"`. Controls behavior when the plugin errors on a fact. |
+
+### Plugin output in records
+
+Each output record gains an `extensions` object with one key per plugin:
+
+```json
+{
+  "oid": "a1b2c3d4...",
+  "subject": "Add caching layer",
+  "extensions": {
+    "my-plugin": { "score": 88 },
+    "other-plugin": null
+  }
+}
+```
+
+A value of `null` means the plugin skipped that fact.
+
+### Plugin failure policies
+
+| Policy      | Behavior on error                                                                 |
+| ----------- | --------------------------------------------------------------------------------- |
+| `skip-fact` | Namespace is set to `null`; a warning is printed to stderr; extraction continues. |
+| `fatal`     | The run aborts immediately with an error message.                                 |
+
+### Writing a plugin
+
+A plugin module must export a default factory function:
+
+```javascript
+// my-plugin.js
+export default async function factory(config) {
+  return {
+    async init() {
+      // Optional: validate config, open connections, etc.
+      return { type: "ready" };
+    },
+
+    async project({ fact, baseRecord }) {
+      if (fact.type !== "commit") {
+        return { type: "skip", message: "file-change facts not supported" };
+      }
+      return { type: "success", data: { score: computeScore(fact) } };
+    },
+  };
+}
+```
+
+For the full plugin contract specification, see [Plugin System Design](design/plugins.md).
