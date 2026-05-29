@@ -1,4 +1,5 @@
 import type { ProgressEvent, ProgressPhase } from "../../core/index.js";
+import { formatDiagnosticLines } from "../diagnostics.js";
 import { plainStyling, type Styling } from "../styling.js";
 import { HEARTBEAT_INTERVAL_MS, SPINNER_FRAMES } from "./constants.js";
 import { formatActiveLine, formatDoneLine } from "./formatters.js";
@@ -143,11 +144,12 @@ export class ProgressController {
   }
 
   private onWarning(message: string): void {
-    const badge = this.styling.warnBadge("[WARN]");
-    const prefixed = `${badge} ${message}`;
+    const lines = formatDiagnosticLines("warn", message, this.styling);
     if (this.mode === "tty-interactive" && this.currentPhase !== null) {
       this.sink.newline();
-      this.sink.writeLine(prefixed);
+      for (const line of lines) {
+        this.sink.writeLine(line);
+      }
       // Immediately restore the progress line after a warning interruption.
       const now = this.clock.nowMs();
       this.sink.rewriteLine(
@@ -155,7 +157,9 @@ export class ProgressController {
       );
     } else {
       // non-tty-summary and quiet both show warnings via plain writeLine
-      this.sink.writeLine(prefixed);
+      for (const line of lines) {
+        this.sink.writeLine(line);
+      }
     }
   }
 }

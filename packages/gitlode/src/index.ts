@@ -6,19 +6,14 @@ import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 
 import type { ParsedArgs } from "./cli/args.js";
-import { parseArgs } from "./cli/index.js";
+import { createBootstrapRenderer, parseArgs, writeDiagnosticLines } from "./cli/index.js";
 import {
   loadPluginConfig,
   resolvePluginEntries,
   checkPluginCompatibility,
   initializePlugins,
 } from "./cli/plugins.js";
-import {
-  ProgressController,
-  resolveUiMode,
-  createStyling,
-  plainStyling,
-} from "./cli/progress/index.js";
+import { ProgressController, resolveUiMode, createStyling } from "./cli/progress/index.js";
 import type { TerminalSink } from "./cli/progress/index.js";
 import { formatProfileLines, formatSummaryLines } from "./cli/reporting/index.js";
 import {
@@ -167,10 +162,12 @@ class NodeStateStore implements StateStore {
 // Stderr terminal sink
 // ---------------------------------------------------------------------------
 
+function writeStderrLine(text: string): void {
+  process.stderr.write(text + "\n");
+}
+
 const stderrSink: TerminalSink = {
-  writeLine(text: string): void {
-    process.stderr.write(text + "\n");
-  },
+  writeLine: writeStderrLine,
   rewriteLine(text: string): void {
     process.stderr.write("\r\x1B[2K" + text);
   },
@@ -185,22 +182,33 @@ const stderrSink: TerminalSink = {
 
 async function main() {
   const adapter = new IsomorphicGitAdapter(nodeFs, new JsDiffAdapter());
-  let parsed;
+  const isTTY = process.stderr.isTTY === true;
+  const styling = createStyling(isTTY);
+  const bootstrapRenderer = createBootstrapRenderer(writeStderrLine);
+  let parsed: ParsedArgs;
   try {
-    parsed = await parseArgs(adapter);
+    const parseResult = await parseArgs(adapter);
+    if (parseResult.kind === "termination") {
+      bootstrapRenderer.renderTermination(parseResult.termination);
+      process.exitCode = parseResult.termination.exitCode;
+      return;
+    }
+    parsed = parseResult.parsed;
   } catch (e) {
     if (e instanceof GitAdapterError) {
-      process.stderr.write(e.message + "\n");
-      process.exit(1);
+      bootstrapRenderer.renderUserError(e.message);
+      process.exitCode = 1;
+      return;
     }
-    process.stderr.write((e instanceof Error ? (e.stack ?? e.message) : String(e)) + "\n");
-    process.exit(2);
+    bootstrapRenderer.renderRuntimeError(
+      e instanceof Error ? e : new Error(typeof e === "string" ? e : String(e)),
+    );
+    process.exitCode = 2;
+    return;
   }
   try {
     const { quiet, profile } = parsed;
-    const isTTY = process.stderr.isTTY === true;
     const uiMode = resolveUiMode(quiet, isTTY);
-    const styling = createStyling(isTTY);
 
     // Build ProgressReporter based on uiMode.
     let reporter: ProgressReporter;
@@ -209,8 +217,7 @@ async function main() {
       reporter = {
         emit(event) {
           if (event.type === "warning") {
-            const badge = plainStyling.warnBadge("[WARN]");
-            process.stderr.write(`${badge} ${event.message}\n`);
+            writeDiagnosticLines(writeStderrLine, "warn", event.message, styling);
           }
         },
       };
@@ -379,11 +386,15 @@ async function main() {
     }
   } catch (e) {
     if (e instanceof GitAdapterError) {
-      process.stderr.write(e.message + "\n");
-      process.exit(1);
+      bootstrapRenderer.renderUserError(e.message);
+      process.exitCode = 1;
+      return;
     }
-    process.stderr.write((e instanceof Error ? (e.stack ?? e.message) : String(e)) + "\n");
-    process.exit(2);
+    bootstrapRenderer.renderRuntimeError(
+      e instanceof Error ? e : new Error(typeof e === "string" ? e : String(e)),
+    );
+    process.exitCode = 2;
+    return;
   }
 }
 

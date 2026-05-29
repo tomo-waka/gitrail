@@ -17,6 +17,10 @@ export interface ParsedArgs extends ExtractorConfig {
   configPath?: string;
 }
 
+export type ParseArgsResult =
+  | { kind: "parsed"; parsed: ParsedArgs }
+  | { kind: "termination"; termination: BootstrapTermination };
+
 const RawOptsSchema = z.object({
   ref: z.array(z.string()),
   incremental: z.boolean(),
@@ -40,6 +44,11 @@ const RawOptsSchema = z.object({
 export const program = new Command()
   .name("gitlode")
   .description("Extract Git commit history to JSON Lines")
+  .configureOutput({
+    writeErr() {
+      // Parse-stage error presentation is owned by gitlode, not Commander.
+    },
+  })
   .addArgument(new Argument("<repository-path>", "Local path to the Git repository"))
   .addHelpOption(new Option("-h, --help", "display help for command").hideHelp())
   .addOption(
@@ -161,15 +170,6 @@ function successTermination(): never {
   throw new TerminationSignal({ kind: "success", exitCode: 0 });
 }
 
-function applyTermination(termination: BootstrapTermination): never {
-  if (termination.kind === "success") {
-    process.exit(termination.exitCode);
-  }
-
-  process.stderr.write(termination.message + "\n");
-  process.exit(termination.exitCode);
-}
-
 const ROTATE_SIZE_MIN = 1_048_576n; // 1 MiB
 const ROTATE_SIZE_MAX = 68_719_476_736n; // 64 GiB
 
@@ -224,7 +224,7 @@ function parseMaxDiffSizeBytes(raw: string): number {
   return parseBinarySize(raw, 1n, null, "--max-diff-size");
 }
 
-export async function parseArgs(adapter: GitAdapter): Promise<ParsedArgs> {
+export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
   try {
     program.exitOverride();
     try {
@@ -410,32 +410,35 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParsedArgs> {
     }
 
     return {
-      repositoryPath: repoPath,
-      refs,
-      outputDir: resolvedOutputDir,
-      outputPrefix: prefix,
-      rotation: { maxLines, maxBytes },
-      incremental,
-      missingState: incremental
-        ? ((missingStateRaw ?? "error") as "error" | "snapshot")
-        : undefined,
-      range: resolvedSinceRef
-        ? { type: "ref", ref: resolvedSinceRef }
-        : sinceDateObj
-          ? { type: "date", since: sinceDateObj }
+      kind: "parsed",
+      parsed: {
+        repositoryPath: repoPath,
+        refs,
+        outputDir: resolvedOutputDir,
+        outputPrefix: prefix,
+        rotation: { maxLines, maxBytes },
+        incremental,
+        missingState: incremental
+          ? ((missingStateRaw ?? "error") as "error" | "snapshot")
           : undefined,
-      stateFilePath: state,
-      perFile,
-      maxDiffSize,
-      quiet,
-      profile,
-      repoName,
-      repoUrl,
-      configPath: resolvedConfigPath,
+        range: resolvedSinceRef
+          ? { type: "ref", ref: resolvedSinceRef }
+          : sinceDateObj
+            ? { type: "date", since: sinceDateObj }
+            : undefined,
+        stateFilePath: state,
+        perFile,
+        maxDiffSize,
+        quiet,
+        profile,
+        repoName,
+        repoUrl,
+        configPath: resolvedConfigPath,
+      },
     };
   } catch (err) {
     if (err instanceof TerminationSignal) {
-      return applyTermination(err.termination);
+      return { kind: "termination", termination: err.termination };
     }
     throw err;
   }
