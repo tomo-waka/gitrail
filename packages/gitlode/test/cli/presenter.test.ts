@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createRunPresenter } from "../../src/cli/presenter.js";
+import { createRunPresenter, normalizeUnknownError } from "../../src/cli/presenter.js";
 import type { Clock, Scheduler, Styling, TerminalSink } from "../../src/cli/progress/index.js";
 
 interface SinkRecord {
@@ -58,6 +58,27 @@ const plainStyling: Styling = {
   unitSuffix: (text) => text,
   refsValue: (text) => text,
 };
+
+describe("normalizeUnknownError", () => {
+  it("returns the same error if it's already an Error instance", () => {
+    const error = new Error("original error");
+    expect(normalizeUnknownError(error)).toBe(error);
+  });
+
+  it("converts a string into an Error instance", () => {
+    const error = "string error";
+    const normalized = normalizeUnknownError(error);
+    expect(normalized).toBeInstanceOf(Error);
+    expect(normalized.message).toBe("string error");
+  });
+
+  it("converts a non-string, non-Error value into an Error instance with a stringified message", () => {
+    const error = { some: "object" };
+    const normalized = normalizeUnknownError(error);
+    expect(normalized).toBeInstanceOf(Error);
+    expect(normalized.message).toBe("[object Object]");
+  });
+});
 
 describe("createRunPresenter", () => {
   it("renders runtime user errors through the run presenter after aborting an active display", () => {

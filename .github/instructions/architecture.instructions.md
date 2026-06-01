@@ -67,16 +67,25 @@ details belong in `CHANGELOG.md`.
 
 ### Ownership and boundary rules
 
-- The runtime edge (`src/index.ts`) constructs `DefaultExtractionCoordinator`, stage instances,
-  optional `StateStore` (`--state`), `OutputSink`, and `ProgressReporter` directly.
-  When `--config` is provided, `EnrichingFactProjector` is used in place of `DefaultFactProjector`.
-  When `--config` is not provided, `DefaultFactProjector` is used directly.
+- The runtime edge (`src/index.ts`) is the process boundary only. It performs bootstrap,
+  delegates runtime setup and one-run orchestration to helpers under `src/cli/runtime/`, and
+  then performs the final fatal rendering / exit-code selection.
+- `src/cli/runtime/state-store.ts` owns `NodeStateStore`, repository object-format gating, and
+  prior-state loading / validation.
+- `src/cli/runtime/progress-runtime.ts` owns UI-mode selection and presenter wiring for quiet,
+  TTY, and non-TTY runs.
+- `src/cli/runtime/execution.ts` owns per-run orchestration, including state-store creation,
+  progress/reporting setup, plugin bootstrap, coordinator construction, and success payload
+  assembly.
+- `src/cli/runtime/success-report.ts` owns successful-run summary / profile rendering.
 - Core owns traversal/extraction orchestration, pipeline branching by granularity, write-loop
   progression, state commit timing, and structured progress events.
 - Core owns `EnrichingFactProjector` and the plugin contract types. `EnrichingFactProjector`
   calls the pure `projectCommit` / `projectFileChange` functions directly.
 - CLI owns rendering policy (TTY vs non-TTY, spinner/heartbeat, summary/profile layout, warning
   redraw behavior) and top-level process/error behavior.
+- CLI runtime helpers under `src/cli/runtime/` own the run-scoped wiring that feeds that rendering
+  policy without changing its observable stderr contract.
 - CLI owns plugin config loading (`src/cli/plugins.ts`): reading and validating the config file,
   resolving module entrypoints, invoking plugin factories, and running parallel `init()`. Plugin
   `init()` is a CLI boundary responsibility; `EnrichingFactProjector` never calls it.
@@ -93,6 +102,8 @@ details belong in `CHANGELOG.md`.
   `Extracting history`, `Finalizing output`), then completion summary, then optional profile block.
 - `--quiet` suppresses progress-stage lines, completion summary, and profile block, but warnings
   and errors remain visible.
+- `src/cli/runtime/success-report.ts` is a rendering helper only; it must not change the summary
+  or profile text contract.
 - `ExtractionResult.profilingEntries` is hierarchical and rooted at `elapsed`.
 - Adapter-facing contracts must not be polluted with profiling metadata.
 

@@ -5,7 +5,9 @@ import { createBootstrapRenderer } from "../../src/cli/bootstrap-renderer.js";
 describe("createBootstrapRenderer", () => {
   it("renders user-error termination as plain message lines", () => {
     const lines: string[] = [];
-    const renderer = createBootstrapRenderer((line) => lines.push(line));
+    const renderer = createBootstrapRenderer({
+      writeLine: (line) => lines.push(line),
+    });
 
     renderer.renderTermination({
       kind: "user-error",
@@ -18,7 +20,9 @@ describe("createBootstrapRenderer", () => {
 
   it("renders success termination with no output", () => {
     const lines: string[] = [];
-    const renderer = createBootstrapRenderer((line) => lines.push(line));
+    const renderer = createBootstrapRenderer({
+      writeLine: (line) => lines.push(line),
+    });
 
     renderer.renderTermination({ kind: "success", exitCode: 0 });
 
@@ -27,7 +31,9 @@ describe("createBootstrapRenderer", () => {
 
   it("renders runtime errors using the stack when available", () => {
     const lines: string[] = [];
-    const renderer = createBootstrapRenderer((line) => lines.push(line));
+    const renderer = createBootstrapRenderer({
+      writeLine: (line) => lines.push(line),
+    });
     const error = new Error("boom");
     error.stack = "line 1\nline 2";
 

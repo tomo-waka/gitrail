@@ -1,16 +1,18 @@
 import { splitMessageLines } from "./diagnostics.js";
 import type { BootstrapTermination } from "./errors.js";
+import { normalizeUnknownError } from "./presenter.js";
+import { TerminalSink } from "./progress/index.js";
 
 export interface BootstrapRenderer {
   renderTermination(termination: BootstrapTermination): void;
   renderUserError(message: string): void;
-  renderRuntimeError(error: Error): void;
+  renderRuntimeError(error: unknown): void;
 }
 
-export function createBootstrapRenderer(writeLine: (line: string) => void): BootstrapRenderer {
+export function createBootstrapRenderer(sink: Pick<TerminalSink, "writeLine">): BootstrapRenderer {
   function writeMessage(message: string): void {
     for (const line of splitMessageLines(message)) {
-      writeLine(line);
+      sink.writeLine(line);
     }
   }
 
@@ -24,7 +26,8 @@ export function createBootstrapRenderer(writeLine: (line: string) => void): Boot
       writeMessage(message);
     },
     renderRuntimeError(error) {
-      writeMessage(error.stack ?? error.message);
+      const normalizedError = normalizeUnknownError(error);
+      writeMessage(normalizedError.stack ?? normalizedError.message);
     },
   };
 }

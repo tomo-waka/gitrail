@@ -14,7 +14,7 @@ export interface RunPresenter {
   handleProgressEvent(event: ProgressEvent): void;
   renderDiagnostic(severity: DiagnosticSeverity, message: string): void;
   renderUserError(message: string): void;
-  renderRuntimeError(error: Error): void;
+  renderRuntimeError(error: unknown): void;
   renderSummary(data: SummaryData): void;
   renderProfile(entries: readonly ProfilingEntry[], skippedDiffs?: number): void;
 }
@@ -25,6 +25,12 @@ interface CreateRunPresenterOptions {
   scheduler: Scheduler;
   uiMode: UiMode;
   styling: Styling;
+}
+
+export function normalizeUnknownError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error(typeof error === "string" ? error : String(error));
 }
 
 export function createRunPresenter(options: CreateRunPresenterOptions): RunPresenter {
@@ -71,7 +77,8 @@ export function createRunPresenter(options: CreateRunPresenterOptions): RunPrese
     },
     renderRuntimeError(error) {
       prepareForNonProgressOutput();
-      writePlainMessage(error.stack ?? error.message);
+      const normalizedError = normalizeUnknownError(error);
+      writePlainMessage(normalizedError.stack ?? normalizedError.message);
     },
     renderSummary(data) {
       prepareForNonProgressOutput();
