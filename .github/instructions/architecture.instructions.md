@@ -86,9 +86,13 @@ details belong in `CHANGELOG.md`.
   redraw behavior) and top-level process/error behavior.
 - CLI runtime helpers under `src/cli/runtime/` own the run-scoped wiring that feeds that rendering
   policy without changing its observable stderr contract.
-- CLI owns plugin config loading (`src/cli/plugins.ts`): reading and validating the config file,
-  resolving module entrypoints, invoking plugin factories, and running parallel `init()`. Plugin
-  `init()` is a CLI boundary responsibility; `EnrichingFactProjector` never calls it.
+- CLI owns generic config loading (`src/cli/config/*`): reading/validating the strict versioned
+  config file, normalizing config-relative paths, resolving CLI/config precedence, and detecting
+  CLI/config conflicts before core execution.
+- `src/cli/plugins.ts` consumes the already validated `extensions` subsection only: resolving
+  module entrypoints, invoking plugin factories, compatibility checks, and running parallel
+  `init()`. Plugin `init()` is a CLI boundary responsibility; `EnrichingFactProjector` never
+  calls it.
 - Git adapter owns Git-native repository access and raw commit/file-change retrieval. Core must
   remain insulated from isomorphic-git details.
 - Output layer owns serialization and rotation mechanics. Core must not duplicate writer rotation
@@ -123,10 +127,17 @@ details belong in `CHANGELOG.md`.
 
 - Parse and validate CLI arguments (see `cli.instructions.md` for full parameter spec)
 - Enforce mutual-exclusion rules between parameters
-- Instantiate Core and pass resolved config (including `stateFilePath` as a string — state file I/O is performed by Core, not CLI)
+- Load and validate the generic config file when `--config` is passed, merge CLI/config defaults,
+  and pass effective settings to Core (including `stateFilePath` as a string — state file I/O is
+  performed by Core, not CLI)
 - Handle top-level errors and format user-facing error messages
 - Exit with appropriate codes: `0` = success, `1` = user error, `2` = runtime error
-- `src/cli/plugins.ts` — plugin config loading, module resolution, factory invocation, parallel `init()` orchestration, and plugin compatibility checking. **Plugin compatibility checking (version range validation against `peerDependencies.gitlode`) is a CLI-layer responsibility and must not be implemented in the core layer.**
+- `src/cli/config/*` — generic `version: 1` config schema validation, strict unknown-key handling,
+  config-relative path normalization, and effective settings merge.
+- `src/cli/plugins.ts` — plugin module resolution/factory invocation/init orchestration and
+  compatibility checking over the validated `extensions` subsection. **Plugin compatibility
+  checking (version range validation against `peerDependencies.gitlode`) is a CLI-layer
+  responsibility and must not be implemented in the core layer.**
 
 ### Core Logic Layer (`src/core/`)
 

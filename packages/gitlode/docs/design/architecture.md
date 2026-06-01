@@ -119,7 +119,7 @@ Responsibilities:
 
 - Parse and validate command arguments.
 - Enforce mutual exclusion rules for differential options.
-- Resolve derived defaults (for example output prefix).
+- Resolve effective settings from CLI/config precedence and derived defaults (for example output prefix).
 - Convert validated args into runtime extraction inputs for coordinator execution.
 - Own the runtime helpers that wire state loading, progress presentation, plugin bootstrap, and
   successful-run rendering without widening `src/index.ts` beyond the process boundary.
@@ -353,15 +353,16 @@ fatal stderr rendering and exit-code selection.
 
 When `--config` is provided:
 
-1. Config is loaded and validated (`loadPluginConfig`).
-2. Entries are resolved and instantiated (`resolvePluginEntries`).
-3. Per-entry profilers are attached if `--profile` is active.
-4. `init()` is called in parallel on all entries (`initializePlugins`). Any fatal result aborts.
-5. `EnrichingFactProjector` is used in place of `DefaultFactProjector`.
-6. Progress phase `"initializing-plugins"` runs before `"preparing"`.
+1. Config is loaded and validated by the generic loader (`src/cli/config/loader.ts`).
+2. Effective settings are merged (refs/range/output/repository/profile) using CLI-over-config precedence.
+3. Plugin entries are resolved and instantiated from the validated `extensions` subsection (`resolvePluginEntries`).
+4. Per-entry profilers are attached if effective profiling is enabled.
+5. `init()` is called in parallel on all entries (`initializePlugins`). Any fatal result aborts.
+6. `EnrichingFactProjector` is used in place of `DefaultFactProjector`.
+7. Progress phase `"initializing-plugins"` runs before `"preparing"` only when `extensions` is present.
 
-When `--config` is not provided, `DefaultFactProjector` is used directly and `extensions` is never
-written.
+When no `extensions` section is present, plugin loading and initialization are skipped,
+`DefaultFactProjector` is used directly, and `extensions` is omitted from output.
 
 ### Boundary rules
 

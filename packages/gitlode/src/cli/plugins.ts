@@ -4,23 +4,18 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { satisfies, validRange } from "semver";
-import { z } from "zod";
 
 import type {
   DiagnosticReporter,
   Namespace,
   PluginEntry,
   PluginFactory,
-  PluginFailurePolicy,
   PluginRuntimeContext,
   ProjectorPlugin,
 } from "../core/index.js";
+import type { ConfigExtensionsSection } from "./config/index.js";
 
 export type PluginSetupTermination = { kind: "user-error"; message: string };
-
-export type LoadPluginConfigResult =
-  | { kind: "loaded"; config: PluginConfigFile }
-  | { kind: "termination"; termination: PluginSetupTermination };
 
 export type ResolvePluginEntriesResult =
   | { kind: "resolved"; entries: PluginEntry[] }
@@ -36,102 +31,8 @@ class PluginSetupSignal extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Config file schema types
-// ---------------------------------------------------------------------------
-
-export interface PluginExtensionEntry {
-  readonly entrypoint: string;
-  readonly config?: unknown;
-  readonly failurePolicy: PluginFailurePolicy;
-}
-
-export interface PluginConfigFile {
-  readonly version: 1;
-  readonly extensions: Readonly<Record<Namespace, PluginExtensionEntry>>;
-}
-
-// ---------------------------------------------------------------------------
-// Validation helpers
-// ---------------------------------------------------------------------------
-
-const NAMESPACE_PATTERN = /^[a-z0-9-]+$/;
-
-function isNamespace(s: string): s is Namespace {
-  return NAMESPACE_PATTERN.test(s);
-}
-
-const PluginExtensionEntrySchema = z
-  .object({
-    entrypoint: z.string().min(1, "must be a non-empty string"),
-    config: z.unknown().optional(),
-    failurePolicy: z.enum(["skip-fact", "fatal"]).default("skip-fact"),
-  })
-  .strict();
-
-const PluginConfigFileSchema = z
-  .object({
-    version: z.literal(1),
-    extensions: z
-      .record(
-        z.string().refine(isNamespace, { message: "must match pattern [a-z0-9-]+" }),
-        PluginExtensionEntrySchema,
-      )
-      .refine((ext) => Object.keys(ext).length > 0, {
-        message: '"extensions" must contain at least one entry',
-      }),
-  })
-  .strict();
-
 function configError(msg: string): never {
   throw new PluginSetupSignal({ kind: "user-error", message: msg });
-}
-
-function validatePluginConfig(raw: unknown, configPath: string): PluginConfigFile {
-  const result = PluginConfigFileSchema.safeParse(raw);
-  if (!result.success) {
-    const messages = result.error.issues.map((issue) => {
-      const path = issue.path.length > 0 ? ` at "${issue.path.join(".")}"` : "";
-      return `${path}: ${issue.message}`;
-    });
-    configError(`Invalid config file${messages.join("; ")} (${configPath})`);
-  }
-  // Zod validates all namespace keys via isNamespace; cast bridges the Namespace key type.
-  return result.data as unknown as PluginConfigFile;
-}
-
-// ---------------------------------------------------------------------------
-// Loader pipeline
-// ---------------------------------------------------------------------------
-
-/** Read and validate the config file at the given absolute path. */
-export async function loadPluginConfig(configPath: string): Promise<LoadPluginConfigResult> {
-  try {
-    let raw: string;
-    try {
-      raw = await readFile(configPath, "utf8");
-    } catch (err) {
-      const msg =
-        err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT"
-          ? `Config file not found: ${configPath}`
-          : `Failed to read config file: ${configPath}`;
-      configError(msg);
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      configError(`Invalid config file: not valid JSON (${configPath})`);
-    }
-
-    return { kind: "loaded", config: validatePluginConfig(parsed, configPath) };
-  } catch (err) {
-    if (err instanceof PluginSetupSignal) {
-      return { kind: "termination", termination: err.termination };
-    }
-    throw err;
-  }
 }
 
 /**
@@ -140,14 +41,14 @@ export async function loadPluginConfig(configPath: string): Promise<LoadPluginCo
  * entrypoints.
  */
 export async function resolvePluginEntries(
-  config: PluginConfigFile,
+  extensions: ConfigExtensionsSection,
   configPath: string,
 ): Promise<ResolvePluginEntriesResult> {
   try {
     const configDir = dirname(configPath);
     const entries: PluginEntry[] = [];
 
-    for (const [namespace, extEntry] of Object.entries(config.extensions)) {
+    for (const [namespace, extEntry] of Object.entries(extensions)) {
       const { entrypoint, config: pluginConfig, failurePolicy } = extEntry;
 
       let resolvedSpecifier: string;
@@ -309,7 +210,7 @@ function resolveEntrypointToUrl(entrypoint: string, configDir: string): string |
  */
 export async function checkPluginCompatibility(
   entries: PluginEntry[],
-  config: PluginConfigFile,
+  extensions: ConfigExtensionsSection,
   configPath: string,
   reporter: Pick<DiagnosticReporter, "warn">,
 ): Promise<void> {
@@ -321,7 +222,7 @@ export async function checkPluginCompatibility(
   const configDir = dirname(configPath);
 
   for (const entry of entries) {
-    const extEntry = config.extensions[entry.namespace];
+    const extEntry = extensions[entry.namespace];
     if (!extEntry) continue;
 
     const entrypointUrl = resolveEntrypointToUrl(extEntry.entrypoint, configDir);

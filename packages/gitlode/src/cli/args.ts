@@ -7,6 +7,8 @@ import { z } from "zod";
 import type { CommitOid, ExtractorConfig } from "../core/index.js";
 import { GitAdapterError } from "../git/index.js";
 import type { GitAdapter } from "../git/index.js";
+import { loadConfigFile } from "./config/index.js";
+import type { LoadedConfigFile } from "./config/index.js";
 import { type BootstrapTermination } from "./errors.js";
 
 export interface ParsedArgs extends ExtractorConfig {
@@ -15,6 +17,7 @@ export interface ParsedArgs extends ExtractorConfig {
   repoName?: string;
   repoUrl?: string;
   configPath?: string;
+  loadedConfig?: LoadedConfigFile;
 }
 
 export type ParseArgsResult =
@@ -22,9 +25,9 @@ export type ParseArgsResult =
   | { kind: "termination"; termination: BootstrapTermination };
 
 const RawOptsSchema = z.object({
-  ref: z.array(z.string()),
+  ref: z.array(z.string()).optional(),
   incremental: z.boolean(),
-  outputDir: z.string(),
+  outputDir: z.string().optional(),
   outputPrefix: z.string().optional(),
   state: z.string().optional(),
   missingState: z.string().optional(),
@@ -59,8 +62,7 @@ export const program = new Command()
       "-r, --ref <ref>",
       "Ref to use as traversal starting point. Accepts branch name, tag, or commit object ID. Repeatable.",
     )
-      .argParser((val: string, prev: string[]) => [...prev, val])
-      .default([])
+      .argParser((val: string, prev: string[] | undefined) => [...(prev ?? []), val])
       .helpGroup("Required Input"),
   )
   .addOption(
@@ -96,9 +98,9 @@ export const program = new Command()
     ).helpGroup("Incremental Extraction"),
   )
   .addOption(
-    new Option("-o, --output-dir <path>", "Directory to write output .jsonl files")
-      .default("./")
-      .helpGroup("Output and Repository Metadata"),
+    new Option("-o, --output-dir <path>", "Directory to write output .jsonl files").helpGroup(
+      "Output and Repository Metadata",
+    ),
   )
   .addOption(
     new Option(
@@ -244,6 +246,10 @@ function parseMaxDiffSizeBytes(raw: string): number {
   return parseBinarySize(raw, 1n, null, "--max-diff-size");
 }
 
+function isCliValueProvided(name: string): boolean {
+  return program.getOptionValueSource(name) === "cli";
+}
+
 export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
   try {
     program.exitOverride();
@@ -273,14 +279,14 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
       throw err;
     }
 
-    const refs: string[] = opts.ref;
+    const refsFromCli: string[] = opts.ref ?? [];
     const incremental = opts.incremental;
-    const sinceRef = opts.sinceRef;
-    const sinceDate = opts.sinceDate;
+    const sinceRefFromCli = opts.sinceRef;
+    const sinceDateFromCli = opts.sinceDate;
     const state = opts.state;
     const missingStateRaw = opts.missingState;
-    const outputDir = opts.outputDir;
-    const outputPrefix = opts.outputPrefix;
+    const outputDirFromCli = opts.outputDir;
+    const outputPrefixFromCli = opts.outputPrefix;
     const rotateLinesRaw = opts.rotateLines;
     const rotateSizeRaw = opts.rotateSize;
     const maxDiffSizeRaw = opts.maxDiffSize;
@@ -288,8 +294,8 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
     const quiet = opts.quiet;
     const profile = opts.profile;
     const perFile = opts.perFile;
-    const repoName = opts.repoName;
-    const repoUrl = opts.repoUrl;
+    const repoNameFromCli = opts.repoName;
+    const repoUrlFromCli = opts.repoUrl;
     const configRaw = opts.config;
 
     // --- Phase 1: Format and mutual exclusion checks (no I/O) ---
@@ -301,13 +307,13 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
       userError('--missing-state must be "error" or "snapshot"');
     }
 
-    if (sinceRef && sinceDate) {
+    if (sinceRefFromCli && sinceDateFromCli) {
       userError("--since-ref and --since-date cannot be used together");
     }
-    if (incremental && sinceRef) {
+    if (incremental && sinceRefFromCli) {
       userError("--since-ref cannot be used with --incremental");
     }
-    if (incremental && sinceDate) {
+    if (incremental && sinceDateFromCli) {
       userError("--since-date cannot be used with --incremental");
     }
     if (missingStateRaw !== undefined && !incremental) {
@@ -317,22 +323,18 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
       userError("--state is required when using --incremental");
     }
 
-    if (refs.length === 0) {
-      userError("At least one --ref must be specified");
-    }
-
-    let maxLines: number | undefined;
+    let cliMaxLines: number | undefined;
     if (rotateLinesRaw !== undefined) {
       const n = Number(rotateLinesRaw);
       if (!Number.isInteger(n) || n <= 0) {
         userError("--rotate-lines must be a positive integer");
       }
-      maxLines = n;
+      cliMaxLines = n;
     }
 
-    let maxBytes: number | undefined;
+    let cliMaxBytes: number | undefined;
     if (rotateSizeRaw !== undefined) {
-      maxBytes = parseRotateSizeBytes(rotateSizeRaw);
+      cliMaxBytes = parseRotateSizeBytes(rotateSizeRaw);
     }
 
     let maxDiffSize: number | undefined;
@@ -340,18 +342,89 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
       maxDiffSize = parseMaxDiffSizeBytes(maxDiffSizeRaw);
     }
 
-    let sinceDateObj: Date | undefined;
-    if (sinceDate !== undefined) {
-      const d = new Date(sinceDate);
+    let sinceDateFromCliObj: Date | undefined;
+    if (sinceDateFromCli !== undefined) {
+      const d = new Date(sinceDateFromCli);
       if (isNaN(d.getTime())) {
         userError(
           "Invalid date format for --since-date. Expected ISO 8601 (e.g. 2024-01-01T00:00:00Z)",
         );
       }
-      sinceDateObj = d;
+      sinceDateFromCliObj = d;
     }
 
-    // --- Phase 2: File system validation ---
+    // --- Phase 2: Config load/validation (when explicit --config is passed) ---
+    let loadedConfig: LoadedConfigFile | undefined;
+    let resolvedConfigPath: string | undefined;
+    if (configRaw !== undefined) {
+      resolvedConfigPath = resolve(configRaw);
+      const loadedResult = await loadConfigFile(resolvedConfigPath);
+      if (loadedResult.kind === "termination") {
+        userError(loadedResult.termination.message);
+      }
+      loadedConfig = loadedResult.loaded;
+    }
+
+    const configExtraction = loadedConfig?.config.extraction;
+    const configOutput = loadedConfig?.config.output;
+    const configRepository = loadedConfig?.config.repository;
+    const configRuntime = loadedConfig?.config.runtime;
+
+    const effectiveRefs =
+      refsFromCli.length > 0 ? refsFromCli : [...(configExtraction?.refs ?? [])];
+    if (effectiveRefs.length === 0) {
+      userError("At least one --ref must be specified");
+    }
+
+    const hasCliRange = sinceRefFromCli !== undefined || sinceDateFromCliObj !== undefined;
+    const hasConfigRange = configExtraction?.range !== undefined;
+    if (incremental && hasConfigRange) {
+      userError("Config extraction.range cannot be used with --incremental");
+    }
+
+    const effectiveRange = hasCliRange
+      ? {
+          sinceRef: sinceRefFromCli,
+          sinceDate: sinceDateFromCliObj,
+        }
+      : {
+          sinceRef: configExtraction?.range?.sinceRef,
+          sinceDate: configExtraction?.range?.sinceDate,
+        };
+
+    let sinceDateFromConfigObj: Date | undefined;
+    if (!hasCliRange && effectiveRange.sinceDate !== undefined) {
+      const d = new Date(effectiveRange.sinceDate);
+      if (isNaN(d.getTime())) {
+        userError(
+          "Invalid date format for --since-date. Expected ISO 8601 (e.g. 2024-01-01T00:00:00Z)",
+        );
+      }
+      sinceDateFromConfigObj = d;
+    }
+
+    const outputDir =
+      (isCliValueProvided("outputDir") ? outputDirFromCli : configOutput?.directory) ?? "./";
+    const outputPrefix = outputPrefixFromCli ?? configOutput?.prefix;
+    const repoName = repoNameFromCli ?? configRepository?.name;
+    const repoUrl = repoUrlFromCli ?? configRepository?.url;
+    const effectiveProfile = profile || configRuntime?.profile === true;
+
+    const configMaxLines = configOutput?.rotation?.lines;
+    const configMaxBytesRaw = configOutput?.rotation?.size;
+    const configMaxBytes =
+      configMaxBytesRaw === undefined ? undefined : parseRotateSizeBytes(configMaxBytesRaw);
+    const maxLines = cliMaxLines ?? configMaxLines;
+    const maxBytes = cliMaxBytes ?? configMaxBytes;
+
+    let effectiveSinceDateObj: Date | undefined;
+    if (hasCliRange) {
+      effectiveSinceDateObj = sinceDateFromCliObj;
+    } else {
+      effectiveSinceDateObj = sinceDateFromConfigObj;
+    }
+
+    // --- Phase 3: File system validation ---
     if (!repoPath) {
       userError("Repository path is required");
     }
@@ -377,17 +450,9 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
       }
     }
 
-    let resolvedConfigPath: string | undefined;
-    if (configRaw !== undefined) {
-      resolvedConfigPath = resolve(configRaw);
-      if (!existsSync(resolvedConfigPath)) {
-        userError(`Config file not found: ${configRaw}`);
-      }
-    }
-
-    // --- Phase 3: Git validation ---
+    // --- Phase 4: Git validation ---
     try {
-      await adapter.resolveRef(resolvedRepoPath, refs[0]!);
+      await adapter.resolveRef(resolvedRepoPath, effectiveRefs[0]!);
     } catch (e) {
       if (e instanceof GitAdapterError) {
         if (e.code === "NOT_A_REPOSITORY") {
@@ -403,12 +468,12 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
     }
 
     let resolvedSinceRef: CommitOid | undefined;
-    if (sinceRef) {
+    if (effectiveRange.sinceRef) {
       try {
-        resolvedSinceRef = await adapter.resolveRef(resolvedRepoPath, sinceRef);
+        resolvedSinceRef = await adapter.resolveRef(resolvedRepoPath, effectiveRange.sinceRef);
       } catch (e) {
         if (e instanceof GitAdapterError && e.code === "REF_NOT_FOUND") {
-          userError(`Ref not found: ${sinceRef}`);
+          userError(`Ref not found: ${effectiveRange.sinceRef}`);
         }
         throw e;
       }
@@ -433,7 +498,7 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
       kind: "parsed",
       parsed: {
         repositoryPath: repoPath,
-        refs,
+        refs: effectiveRefs,
         outputDir: resolvedOutputDir,
         outputPrefix: prefix,
         rotation: { maxLines, maxBytes },
@@ -443,17 +508,18 @@ export async function parseArgs(adapter: GitAdapter): Promise<ParseArgsResult> {
           : undefined,
         range: resolvedSinceRef
           ? { type: "ref", ref: resolvedSinceRef }
-          : sinceDateObj
-            ? { type: "date", since: sinceDateObj }
+          : effectiveSinceDateObj
+            ? { type: "date", since: effectiveSinceDateObj }
             : undefined,
         stateFilePath: state,
         perFile,
         maxDiffSize,
         quiet,
-        profile,
+        profile: effectiveProfile,
         repoName,
         repoUrl,
         configPath: resolvedConfigPath,
+        loadedConfig,
       },
     };
   } catch (err) {

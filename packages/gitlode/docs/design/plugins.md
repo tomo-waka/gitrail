@@ -21,13 +21,14 @@ domain-specific payload to be written under a reserved namespace key in the `ext
 
 ## Plugin Configuration File
 
-Plugins are declared in a JSON configuration file passed via `--config` (alias `-c`):
+Plugins are declared under the `extensions` subsection of the JSON configuration file passed via
+`--config` (alias `-c`):
 
 ```bash
 gitlode -r main --config ./gitlode.config.json ./my-repo
 ```
 
-The configuration file schema:
+The plugin-relevant subsection schema:
 
 ```json
 {
@@ -44,14 +45,19 @@ The configuration file schema:
 
 ### Fields
 
-| Field           | Type                       | Required | Description                                                                                                                                                                        |
-| --------------- | -------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`       | `1`                        | ✅       | Schema version. Must be `1`.                                                                                                                                                       |
-| `extensions`    | object                     | ✅       | Map from namespace key to plugin entry. Must contain at least one entry.                                                                                                           |
-| `<namespace>`   | string                     | ✅       | Namespace key for this plugin's data. Must match `[a-z0-9-]+`. Written as a key under `extensions` in output.                                                                      |
-| `entrypoint`    | string                     | ✅       | Module specifier. Relative paths (starting with `.`) resolve from the config file directory. Bare specifiers resolve via Node.js module resolution from the config file directory. |
-| `config`        | any JSON value             |          | Passed as-is to the plugin factory. Omit or set to `null` if unused.                                                                                                               |
-| `failurePolicy` | `"skip-fact"` \| `"fatal"` |          | Default: `"skip-fact"`. Controls behavior when the plugin returns a `fatal` result or throws.                                                                                      |
+| Field        | Type   | Required | Description                                                                                                    |
+| ------------ | ------ | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `version`    | `1`    | ✅       | Schema version. Must be `1`.                                                                                   |
+| `extensions` | object |          | Map from namespace key to plugin entry. Optional at file level; when present, must contain at least one entry. |
+
+The same config file may also contain non-plugin sections (`extraction`, `output`, `repository`,
+`runtime`). See [configuration.md](configuration.md) for the complete v1 schema and precedence
+rules.
+
+| `<namespace>` | string | ✅ | Namespace key for this plugin's data. Must match `[a-z0-9-]+`. Written as a key under `extensions` in output. |
+| `entrypoint` | string | ✅ | Module specifier. Relative paths (starting with `.`) resolve from the config file directory. Bare specifiers resolve via Node.js module resolution from the config file directory. |
+| `config` | any JSON value | | Passed as-is to the plugin factory. Omit or set to `null` if unused. |
+| `failurePolicy` | `"skip-fact"` \| `"fatal"` | | Default: `"skip-fact"`. Controls behavior when the plugin returns a `fatal` result or throws. |
 
 ---
 

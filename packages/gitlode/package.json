@@ -19,7 +19,8 @@
     "gitlode": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "schemas"
   ],
   "type": "module",
   "exports": {

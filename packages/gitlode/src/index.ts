@@ -5,11 +5,11 @@ import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 
 import type { ParsedArgs } from "./cli/args.js";
+import { loadConfigFile } from "./cli/config/index.js";
 import { createBootstrapRenderer, parseArgs } from "./cli/index.js";
 import {
   checkPluginCompatibility,
   initializePlugins,
-  loadPluginConfig,
   resolvePluginEntries,
 } from "./cli/plugins.js";
 import { createStyling } from "./cli/progress/index.js";
@@ -144,18 +144,23 @@ async function main(): Promise<void> {
       const fileChangeExpander = new DefaultFileChangeExpander(runAdapter, parsedArgs.maxDiffSize);
 
       let projector: FactProjector;
-      if (parsedArgs.configPath) {
-        progressRuntime.reporter.emit({ type: "phase-start", phase: "initializing-plugins" });
-
-        const pluginConfigResult = await loadPluginConfig(parsedArgs.configPath);
-        if (pluginConfigResult.kind === "termination") {
-          progressRuntime.presenter.renderUserError(pluginConfigResult.termination.message);
+      let loadedConfig = parsedArgs.loadedConfig;
+      if (parsedArgs.configPath && loadedConfig === undefined) {
+        const loadedResult = await loadConfigFile(parsedArgs.configPath);
+        if (loadedResult.kind === "termination") {
+          progressRuntime.presenter.renderUserError(loadedResult.termination.message);
           process.exitCode = 1;
           return;
         }
+        loadedConfig = loadedResult.loaded;
+      }
+
+      const extensionsConfig = loadedConfig?.config.extensions;
+      if (parsedArgs.configPath && extensionsConfig) {
+        progressRuntime.reporter.emit({ type: "phase-start", phase: "initializing-plugins" });
 
         const pluginEntriesResult = await resolvePluginEntries(
-          pluginConfigResult.config,
+          extensionsConfig,
           parsedArgs.configPath,
         );
         if (pluginEntriesResult.kind === "termination") {
@@ -166,16 +171,11 @@ async function main(): Promise<void> {
 
         const pluginEntries = pluginEntriesResult.entries;
 
-        await checkPluginCompatibility(
-          pluginEntries,
-          pluginConfigResult.config,
-          parsedArgs.configPath,
-          {
-            warn(message) {
-              progressRuntime.presenter.renderDiagnostic("warn", message);
-            },
+        await checkPluginCompatibility(pluginEntries, extensionsConfig, parsedArgs.configPath, {
+          warn(message) {
+            progressRuntime.presenter.renderDiagnostic("warn", message);
           },
-        );
+        });
 
         const pluginsProfiler = parsedArgs.profile
           ? projectionProfiler?.createScopedProfiler("plugins")

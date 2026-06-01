@@ -129,7 +129,22 @@ function mockEntrypointModules(
     createBootstrapRenderer: vi.fn(() => bootstrapRenderer),
     parseArgs:
       options.parseArgs ??
-      vi.fn(async () => ({ parsed: makeParsedArgs({ configPath: "/repo/plugins.json" }) })),
+      vi.fn(async () => ({
+        parsed: makeParsedArgs({
+          configPath: "/repo/plugins.json",
+          loadedConfig: {
+            path: "/repo/plugins.json",
+            directory: "/repo",
+            config: {
+              version: 1,
+              extensions: {
+                one: { entrypoint: "./one.mjs", failurePolicy: "skip-fact" },
+                two: { entrypoint: "./two.mjs", failurePolicy: "skip-fact" },
+              },
+            },
+          },
+        }),
+      })),
   }));
 
   vi.doMock("../../src/cli/plugins.js", () => ({

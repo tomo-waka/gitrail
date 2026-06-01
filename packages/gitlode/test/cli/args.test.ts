@@ -924,4 +924,102 @@ describe("parseArgs – --config", () => {
       `Config file not found: ${join(repoDir, "nonexistent.json")}`,
     );
   });
+
+  it("uses extraction.refs from config when CLI --ref is absent", async () => {
+    const adapter = makeRealAdapter();
+    await writeFile(
+      configFile,
+      JSON.stringify({
+        version: 1,
+        extraction: { refs: ["main"] },
+      }),
+    );
+
+    setArgv("--output-dir", repoDir, "--config", configFile, repoDir);
+    const parsed = expectParsed(await parseArgs(adapter));
+    expect(parsed.refs).toEqual(["main"]);
+  });
+
+  it("replaces config extraction.refs with CLI --ref list when CLI refs are present", async () => {
+    const adapter = makeRealAdapter();
+    await writeFile(
+      configFile,
+      JSON.stringify({
+        version: 1,
+        extraction: { refs: ["main"] },
+      }),
+    );
+
+    setArgv("--ref", "develop", "--output-dir", repoDir, "--config", configFile, repoDir);
+    const parsed = expectParsed(await parseArgs(adapter));
+    expect(parsed.refs).toEqual(["develop"]);
+  });
+
+  it("fails fast when config extraction.range is present with CLI --incremental", async () => {
+    const adapter = makeRealAdapter();
+    await writeFile(
+      configFile,
+      JSON.stringify({
+        version: 1,
+        extraction: { refs: ["main"], range: { sinceRef: "main" } },
+      }),
+    );
+
+    const stateFilePath = join(repoDir, "state.json");
+    await writeFile(
+      stateFilePath,
+      JSON.stringify({ version: 2, generatedAt: "", repositoryPath: repoDir, refs: [] }),
+    );
+
+    setArgv(
+      "--incremental",
+      "--state",
+      stateFilePath,
+      "--output-dir",
+      repoDir,
+      "--config",
+      configFile,
+      repoDir,
+    );
+    await expectUserErrorTermination(
+      parseArgs(adapter),
+      "Config extraction.range cannot be used with --incremental",
+    );
+  });
+
+  it("combines CLI --rotate-lines with config output.rotation.size", async () => {
+    const adapter = makeRealAdapter();
+    await writeFile(
+      configFile,
+      JSON.stringify({
+        version: 1,
+        extraction: { refs: ["main"] },
+        output: {
+          directory: repoDir,
+          rotation: { size: "1M" },
+        },
+      }),
+    );
+
+    setArgv("--rotate-lines", "100", "--config", configFile, repoDir);
+    const parsed = expectParsed(await parseArgs(adapter));
+    expect(parsed.rotation).toEqual({ maxLines: 100, maxBytes: 1_048_576 });
+  });
+
+  it("enables profile when config runtime.profile=true without CLI --profile", async () => {
+    const adapter = makeRealAdapter();
+    await writeFile(
+      configFile,
+      JSON.stringify({
+        version: 1,
+        extraction: { refs: ["main"] },
+        output: { directory: repoDir },
+        runtime: { profile: true },
+      }),
+    );
+
+    setArgv("--config", configFile, repoDir);
+    const parsed = expectParsed(await parseArgs(adapter));
+    expect(parsed.profile).toBe(true);
+  });
 });
